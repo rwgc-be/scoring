@@ -550,6 +550,36 @@ function fmtScoreVal(v) {
   return Math.round(v * 2) / 2 === Math.floor(v) ? String(Math.floor(v)) : (Math.floor(v) + '½');
 }
 
+/* Format golf classique pour un match terminé.
+   Retourne par exemple "5 & 4", "1 UP", "AS", ou "Gagné au 19" pour les play-offs.
+   - p = joueur (objet)
+   - status = 'won' | 'lost'
+   En match-play classique : si le match se termine au trou H avec |score| trous d'avance,
+   le restant à jouer = 18 - H. Format "X & Y" si Y > 0, sinon "X UP" si X > 0, sinon "AS". */
+function fmtGolfScore(p, status) {
+  if (!p) return '';
+  var h = p.hole || 0;
+  var s = Math.abs(p.score || 0);
+
+  // Cas play-off (trou >= 19) : on affiche juste "Gagné au 19" / "Perdu au 20" etc.
+  if (h >= 19) {
+    if (status === 'won') return 'Gagné au ' + h;
+    if (status === 'lost') return 'Perdu au ' + h;
+    return 'AS au ' + h;
+  }
+
+  // Match terminé pile au 18 → score final, pas de "&"
+  if (h >= 18) {
+    if (s === 0) return 'AS';
+    return s + ' UP';
+  }
+
+  // Match terminé avant le 18 → format "X & Y"
+  var restants = 18 - h;
+  if (s === 0) return 'AS';      // peu probable avant 18, mais bon
+  return s + ' & ' + restants;
+}
+
 /* ============================================================
    EXPORT DES CODES (.txt)
    ============================================================ */
@@ -1195,14 +1225,14 @@ function renderCapOtherIc(icId) {
         var p = ic.players[pid];
         var f = formatScore(p.score || 0);
         var status = p.status || (p.won ? 'won' : 'pending');
-        var statusLabel = status === 'won'  ? '✅ Terminé'
-                        : status === 'lost' ? '❌ Terminé'
+        var statusLabel = status === 'won'  ? '✅ ' + fmtGolfScore(p, 'won')
+                        : status === 'lost' ? '❌ ' + fmtGolfScore(p, 'lost')
                         :                     'En cours';
         var statusBadge = '<span class="status-btn ' + status + ' readonly">' + statusLabel + '</span>';
         var histBtn = '<button class="btn btn-history" data-act="history" data-pid="' + pid + '" title="Historique">📊</button>';
         var scoreDisplay;
-        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="padding:8px">GAGNÉ</div>';
-        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="padding:8px">PERDU</div>';
+        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="padding:8px;font-size:13px">' + fmtGolfScore(p, 'won') + '</div>';
+        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="padding:8px;font-size:13px">' + fmtGolfScore(p, 'lost') + '</div>';
         else                        scoreDisplay = '<div class="display ' + f.cls + '" style="padding:8px">' + f.text + '</div>';
         return '<div class="player ' + status + '">' +
           '<div class="row">' +
@@ -1375,14 +1405,14 @@ function renderFc() {
       if (isMyIc) {
         // Mon IC : boutons +/-, trous, statut actifs
         var status = p.status || (p.won ? 'won' : 'pending');
-        var statusLabel = status === 'won'  ? 'Terminé ✅'
-                        : status === 'lost' ? 'Terminé ❌'
+        var statusLabel = status === 'won'  ? fmtGolfScore(p, 'won') + ' ✅'
+                        : status === 'lost' ? fmtGolfScore(p, 'lost') + ' ❌'
                         :                     'En cours';
         var statusBtn = '<button class="status-btn ' + status + '" data-act="status" data-pid="' + pid + '">' + statusLabel + '</button>';
         var histBtn = '<button class="btn btn-history" data-act="history" data-pid="' + pid + '" title="Historique">📊</button>';
         var scoreDisplay;
-        if (status === 'won')       scoreDisplay = '<div class="display score-won">GAGNÉ</div>';
-        else if (status === 'lost') scoreDisplay = '<div class="display score-down">PERDU</div>';
+        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="font-size:13px">' + fmtGolfScore(p, 'won') + '</div>';
+        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="font-size:13px">' + fmtGolfScore(p, 'lost') + '</div>';
         else                        scoreDisplay = '<div class="display ' + f.cls + '">' + f.text + '</div>';
 
         return '' +
@@ -1416,14 +1446,14 @@ function renderFc() {
       } else {
         // IC d'un autre FC : lecture seule
         var status = p.status || (p.won ? 'won' : 'pending');
-        var statusLabel = status === 'won'  ? '✅ Terminé'
-                        : status === 'lost' ? '❌ Terminé'
+        var statusLabel = status === 'won'  ? '✅ ' + fmtGolfScore(p, 'won')
+                        : status === 'lost' ? '❌ ' + fmtGolfScore(p, 'lost')
                         :                     'En cours';
         var statusBadge = '<span class="status-btn ' + status + ' readonly">' + statusLabel + '</span>';
         var histBtn = '<button class="btn btn-history" data-act="history" data-pid="' + pid + '" data-ic="' + ic.id + '" title="Historique">📊</button>';
         var scoreDisplay;
-        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="padding:8px">GAGNÉ</div>';
-        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="padding:8px">PERDU</div>';
+        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="padding:8px;font-size:13px">' + fmtGolfScore(p, 'won') + '</div>';
+        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="padding:8px;font-size:13px">' + fmtGolfScore(p, 'lost') + '</div>';
         else                        scoreDisplay = '<div class="display ' + f.cls + '" style="padding:8px">' + f.text + '</div>';
 
         return '' +
@@ -1608,15 +1638,15 @@ function renderIcDetail(icId, isAdminView, viewerRole) {
         ? '<button class="btn btn-del" data-act="del" data-pid="' + pid + '">✕</button>'
         : '';
       var nameAttr = isAdminView ? 'data-act="rename"' : 'readonly';
-      var statusLabel = status === 'won'  ? 'Terminé ✅'
-                      : status === 'lost' ? 'Terminé ❌'
+      var statusLabel = status === 'won'  ? fmtGolfScore(p, 'won') + ' ✅'
+                      : status === 'lost' ? fmtGolfScore(p, 'lost') + ' ❌'
                       :                     'En cours';
       var statusBtn = '<button class="status-btn ' + status + '" data-act="status" data-pid="' + pid + '">' + statusLabel + '</button>';
       var histBtn = '<button class="btn btn-history" data-act="history" data-pid="' + pid + '" title="Historique">📊</button>';
 
       var scoreDisplay;
-      if (status === 'won')      scoreDisplay = '<div class="display score-won">GAGNÉ</div>';
-      else if (status === 'lost') scoreDisplay = '<div class="display score-down">PERDU</div>';
+      if (status === 'won')      scoreDisplay = '<div class="display score-won" style="font-size:13px">' + fmtGolfScore(p, 'won') + '</div>';
+      else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="font-size:13px">' + fmtGolfScore(p, 'lost') + '</div>';
       else                        scoreDisplay = '<div class="display ' + f.cls + '">' + f.text + '</div>';
 
       return '' +
@@ -1946,14 +1976,14 @@ function renderSpectator() {
         var p = ic.players[pid];
         var f = formatScore(p.score || 0);
         var status = p.status || (p.won ? 'won' : 'pending');
-        var statusLabel = status === 'won'  ? '✅ Terminé'
-                        : status === 'lost' ? '❌ Terminé'
+        var statusLabel = status === 'won'  ? '✅ ' + fmtGolfScore(p, 'won')
+                        : status === 'lost' ? '❌ ' + fmtGolfScore(p, 'lost')
                         :                     'En cours';
         var statusBadge = '<span class="status-btn ' + status + ' readonly">' + statusLabel + '</span>';
         var histBtn = '<button class="btn btn-history" data-act="history" data-pid="' + pid + '" title="Historique">📊</button>';
         var scoreDisplay;
-        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="padding:8px">GAGNÉ</div>';
-        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="padding:8px">PERDU</div>';
+        if (status === 'won')       scoreDisplay = '<div class="display score-won" style="padding:8px;font-size:13px">' + fmtGolfScore(p, 'won') + '</div>';
+        else if (status === 'lost') scoreDisplay = '<div class="display score-down" style="padding:8px;font-size:13px">' + fmtGolfScore(p, 'lost') + '</div>';
         else                        scoreDisplay = '<div class="display ' + f.cls + '" style="padding:8px">' + f.text + '</div>';
         return '' +
           '<div class="player ' + status + '">' +
@@ -2202,16 +2232,32 @@ function getHoleBounds(icId, pid) {
   });
   var idx = pids.indexOf(pid);
   if (idx < 0) return { min: 0, max: 36 };
+
+  // Helper : un joueur "termine" (won/lost) ne bloque plus le suivant
+  function isFinished(p) {
+    return p && (p.status === 'won' || p.status === 'lost');
+  }
+
+  // Max = trou du joueur précédent EN COURS (on saute ceux qui sont terminés)
   var max = 36;
-  if (idx > 0) {
-    var prev = ic.players[pids[idx - 1]];
-    max = (prev && typeof prev.hole === 'number') ? prev.hole : 36;
+  for (var i = idx - 1; i >= 0; i--) {
+    var prev = ic.players[pids[i]];
+    if (!prev) continue;
+    if (isFinished(prev)) continue; // ce joueur a fini, il ne bloque plus
+    max = (typeof prev.hole === 'number') ? prev.hole : 36;
+    break;
   }
+
+  // Min = trou du joueur suivant EN COURS (on saute ceux qui sont terminés)
   var min = 0;
-  if (idx < pids.length - 1) {
-    var next = ic.players[pids[idx + 1]];
-    min = (next && typeof next.hole === 'number') ? next.hole : 0;
+  for (var j = idx + 1; j < pids.length; j++) {
+    var next = ic.players[pids[j]];
+    if (!next) continue;
+    if (isFinished(next)) continue;
+    min = (typeof next.hole === 'number') ? next.hole : 0;
+    break;
   }
+
   return { min: min, max: max };
 }
 
