@@ -1,4 +1,28 @@
 <!DOCTYPE html>
+<!--
+================================================================================
+  SCORE GOLF — Application de scoring interclubs
+  
+  © 2026 Francis Berlier — Tous droits réservés
+  
+  Conçu pour le Royal Waterloo Golf Club (RWGC).
+  
+  ⚠️  AVERTISSEMENT LÉGAL
+  
+  Ce logiciel est protégé par le droit d'auteur belge et européen
+  (Livre XI du Code de droit économique, Directive 2009/24/CE).
+  
+  Toute reproduction, distribution, modification, adaptation, traduction,
+  rétro-ingénierie ou utilisation hors du cadre du RWGC est INTERDITE
+  sans autorisation écrite préalable de l'auteur.
+  
+  Le code source visible via le navigateur reste la propriété exclusive
+  de son auteur. Sa lecture n'autorise aucune utilisation autre que
+  l'exécution normale de l'application.
+  
+  Contact : francisBerlier@gmail.com
+================================================================================
+-->
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
@@ -26,6 +50,11 @@
     color: #fff;
   }
   .container { max-width: 600px; margin: 0 auto; }
+  .legal-footer {
+    max-width: 600px; margin: 30px auto 0; padding: 14px 12px 20px;
+    text-align: center; font-size: 10px; color: rgba(255,255,255,0.45);
+    line-height: 1.5; letter-spacing: 0.2px;
+  }
 
   /* ===== HEADER ===== */
   .header {
@@ -395,6 +424,11 @@
 </head>
 <body>
 <div class="container" id="app"></div>
+
+<!-- Mention légale (footer discret, toujours visible) -->
+<div class="legal-footer">
+  © 2026 Francis Berlier — Score Golf · Tous droits réservés · Usage réservé au RWGC
+</div>
 
 <!-- Modal générique -->
 <div class="modal-bg" id="modal-bg">
