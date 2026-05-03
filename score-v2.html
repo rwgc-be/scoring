@@ -85,9 +85,23 @@
   .player {
     background: rgba(255,255,255,0.12); border-radius: 14px;
     padding: 10px; margin-bottom: 10px; border: 1px solid rgba(255,255,255,0.15);
+    transition: transform 0.15s, opacity 0.15s, background 0.15s;
   }
   .player.won  { background: rgba(74,222,128,0.18);  border-color: rgba(74,222,128,0.6);  border-width: 2px; }
   .player.lost { background: rgba(248,113,113,0.18); border-color: rgba(248,113,113,0.6); border-width: 2px; }
+  /* Drag-and-drop pour réorganiser les joueurs */
+  .player.dragging { opacity: 0.5; transform: scale(0.98); }
+  .player.drag-over-top    { box-shadow: 0 -3px 0 0 #ffd54f inset; }
+  .player.drag-over-bottom { box-shadow: 0 3px 0 0 #ffd54f inset; }
+  .drag-handle {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 28px; height: 28px; flex-shrink: 0;
+    color: rgba(255,255,255,0.55); font-size: 18px;
+    cursor: grab; user-select: none; -webkit-user-select: none;
+    border-radius: 6px; touch-action: none;
+  }
+  .drag-handle:hover  { background: rgba(255,255,255,0.1); color: #fff; }
+  .drag-handle:active { cursor: grabbing; background: rgba(255,213,79,0.2); color: #ffd54f; }
   .status-btn {
     padding: 6px 12px; border-radius: 18px; font-size: 11px; font-weight: 800;
     text-transform: uppercase; letter-spacing: 0.5px; border: none; cursor: pointer;
@@ -1416,8 +1430,9 @@ function renderFc() {
         else                        scoreDisplay = '<div class="display ' + f.cls + '">' + f.text + '</div>';
 
         return '' +
-          '<div class="player ' + status + '">' +
+          '<div class="player ' + status + '" data-pid="' + pid + '">' +
             '<div class="row">' +
+              '<span class="drag-handle" title="Glisser pour réordonner">☰</span>' +
               '<div class="player-name">' + safeName + '</div>' +
               histBtn +
               statusBtn +
@@ -1585,6 +1600,11 @@ function renderFc() {
     if (act === 'status') toggleStatus(ic.id, pid);
   });
 
+  // Drag-and-drop pour réorganiser les joueurs (uniquement sur ma propre rencontre)
+  if (isMyIc) {
+    attachDragHandlers(document.getElementById('players-list'), ic.id);
+  }
+
   // Restaurer scroll/focus
   window.scrollTo(0, savedScroll);
   if (savedFocusPid) {
@@ -1650,8 +1670,9 @@ function renderIcDetail(icId, isAdminView, viewerRole) {
       else                        scoreDisplay = '<div class="display ' + f.cls + '">' + f.text + '</div>';
 
       return '' +
-        '<div class="player ' + status + '">' +
+        '<div class="player ' + status + '" data-pid="' + pid + '">' +
           '<div class="row">' +
+            '<span class="drag-handle" title="Glisser pour réordonner">☰</span>' +
             delBtn +
             '<input class="player-name" value="' + safeName + '" data-pid="' + pid + '" ' + nameAttr + '>' +
             histBtn +
@@ -1847,6 +1868,9 @@ function renderIcDetail(icId, isAdminView, viewerRole) {
       renamePlayer(icId, e.target.dataset.pid, e.target.value);
     }
   });
+
+  // Drag-and-drop pour réorganiser les joueurs (admin et capitaine)
+  attachDragHandlers(document.getElementById('players-list'), icId);
 }
 
 /* ============================================================
@@ -2206,6 +2230,184 @@ function renamePlayer(icId, pid, name) {
   if (!v) return;
   state.clubRef.child('ics/' + icId + '/players/' + pid).update({ name: v });
 }
+/* Réordonner un joueur : on prend tous les joueurs triés selon leur 'order',
+   on déplace celui qu'on drag à la nouvelle position, puis on réattribue les 'order'
+   séquentiellement (1, 2, 3, ...). */
+/* Brancher les listeners drag-and-drop sur tous les joueurs d'une liste.
+   - container = élément HTML qui contient les .player (typiquement #players-list)
+   - icId = id de la rencontre
+   Supporte souris (HTML5 drag) ET tactile (touch events).
+   Note: pour le tactile on utilise touchstart/touchmove/touchend avec hitTest manuel,
+   parce que HTML5 drag ne fonctionne pas sur tous les mobiles. */
+function attachDragHandlers(container, icId) {
+  if (!container) return;
+  var draggedPid = null;
+  var draggedEl = null;
+
+  function clearOver() {
+    container.querySelectorAll('.drag-over-top, .drag-over-bottom').forEach(function(el) {
+      el.classList.remove('drag-over-top', 'drag-over-bottom');
+    });
+  }
+
+  function getPlayerElAt(clientX, clientY) {
+    // Trouver l'élément .player sous le doigt/curseur
+    var el = document.elementFromPoint(clientX, clientY);
+    while (el && el !== container) {
+      if (el.classList && el.classList.contains('player')) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  // ===== Souris (HTML5 drag) =====
+  container.querySelectorAll('.drag-handle').forEach(function(handle) {
+    handle.setAttribute('draggable', 'true');
+    handle.addEventListener('dragstart', function(e) {
+      var playerEl = handle.closest('.player');
+      if (!playerEl) return;
+      draggedPid = playerEl.dataset.pid;
+      draggedEl = playerEl;
+      playerEl.classList.add('dragging');
+      try { e.dataTransfer.setData('text/plain', draggedPid); } catch(err) {}
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
+    handle.addEventListener('dragend', function() {
+      if (draggedEl) draggedEl.classList.remove('dragging');
+      clearOver();
+      draggedPid = null;
+      draggedEl = null;
+    });
+  });
+  container.querySelectorAll('.player').forEach(function(playerEl) {
+    playerEl.addEventListener('dragover', function(e) {
+      if (!draggedPid) return;
+      e.preventDefault(); // autoriser le drop
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+      var rect = playerEl.getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+      clearOver();
+      if (e.clientY < midY) playerEl.classList.add('drag-over-top');
+      else playerEl.classList.add('drag-over-bottom');
+    });
+    playerEl.addEventListener('drop', function(e) {
+      e.preventDefault();
+      if (!draggedPid) return;
+      var targetPid = playerEl.dataset.pid;
+      var rect = playerEl.getBoundingClientRect();
+      var midY = rect.top + rect.height / 2;
+      var pos = (e.clientY < midY) ? 'before' : 'after';
+      clearOver();
+      reorderPlayer(icId, draggedPid, targetPid, pos);
+    });
+  });
+
+  // ===== Tactile (touch events) =====
+  container.querySelectorAll('.drag-handle').forEach(function(handle) {
+    var touchStartY = 0;
+    var holdTimer = null;
+    var dragging = false;
+
+    handle.addEventListener('touchstart', function(e) {
+      var playerEl = handle.closest('.player');
+      if (!playerEl) return;
+      touchStartY = e.touches[0].clientY;
+      // Petit délai pour distinguer tap de drag (évite déclenchements parasites)
+      holdTimer = setTimeout(function() {
+        dragging = true;
+        draggedPid = playerEl.dataset.pid;
+        draggedEl = playerEl;
+        playerEl.classList.add('dragging');
+        // Vibration légère si supportée (feedback haptique)
+        if (navigator.vibrate) try { navigator.vibrate(20); } catch(err) {}
+      }, 120);
+    }, { passive: true });
+
+    handle.addEventListener('touchmove', function(e) {
+      if (!dragging) {
+        // Si on bouge avant la fin du holdTimer, on considère que c'est un scroll → annuler
+        if (Math.abs(e.touches[0].clientY - touchStartY) > 8) {
+          clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+        return;
+      }
+      e.preventDefault(); // pendant le drag actif, on bloque le scroll
+      var t = e.touches[0];
+      var overEl = getPlayerElAt(t.clientX, t.clientY);
+      clearOver();
+      if (overEl && overEl !== draggedEl) {
+        var rect = overEl.getBoundingClientRect();
+        var midY = rect.top + rect.height / 2;
+        if (t.clientY < midY) overEl.classList.add('drag-over-top');
+        else overEl.classList.add('drag-over-bottom');
+      }
+    }, { passive: false });
+
+    handle.addEventListener('touchend', function(e) {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      if (!dragging) return;
+      dragging = false;
+      var t = e.changedTouches[0];
+      var overEl = getPlayerElAt(t.clientX, t.clientY);
+      if (overEl && overEl !== draggedEl) {
+        var targetPid = overEl.dataset.pid;
+        var rect = overEl.getBoundingClientRect();
+        var midY = rect.top + rect.height / 2;
+        var pos = (t.clientY < midY) ? 'before' : 'after';
+        reorderPlayer(icId, draggedPid, targetPid, pos);
+      }
+      if (draggedEl) draggedEl.classList.remove('dragging');
+      clearOver();
+      draggedPid = null;
+      draggedEl = null;
+    });
+
+    handle.addEventListener('touchcancel', function() {
+      clearTimeout(holdTimer);
+      holdTimer = null;
+      dragging = false;
+      if (draggedEl) draggedEl.classList.remove('dragging');
+      clearOver();
+      draggedPid = null;
+      draggedEl = null;
+    });
+  });
+}
+
+function reorderPlayer(icId, draggedPid, targetPid, position /* 'before' | 'after' */) {
+  if (!state.clubRef) return;
+  if (draggedPid === targetPid) return;
+  var ic = state.ics[icId];
+  if (!ic || !ic.players) return;
+
+  // Récupérer la liste actuelle ordonnée
+  var pids = Object.keys(ic.players).sort(function(a, b) {
+    return ((ic.players[a] && ic.players[a].order) || 0) - ((ic.players[b] && ic.players[b].order) || 0);
+  });
+
+  // Retirer le joueur draggé
+  var fromIdx = pids.indexOf(draggedPid);
+  if (fromIdx < 0) return;
+  pids.splice(fromIdx, 1);
+
+  // Trouver la position cible
+  var toIdx = pids.indexOf(targetPid);
+  if (toIdx < 0) return;
+  if (position === 'after') toIdx++;
+
+  // Insérer
+  pids.splice(toIdx, 0, draggedPid);
+
+  // Réattribuer les 'order' séquentiellement
+  var updates = {};
+  pids.forEach(function(pid, i) {
+    updates['ics/' + icId + '/players/' + pid + '/order'] = i + 1;
+  });
+  state.clubRef.update(updates);
+}
+
 function changeScore(icId, pid, d) {
   var p = state.ics[icId].players[pid];
   var cur = (p && p.score) || 0;
