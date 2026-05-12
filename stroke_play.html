@@ -656,6 +656,9 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 
       <div style="text-align: center; margin-top: 14px; font-size: 11px; color: var(--muted);">
         <a href="#" onclick="showCreateClub();return false;" style="color: var(--fairway); text-decoration: none;">Créer un nouveau club</a>
+        <span id="disconnect-club-link" style="display: none;">
+          · <a href="#" onclick="disconnectClub();return false;" style="color: var(--muted); text-decoration: none;">Changer de club</a>
+        </span>
       </div>
     </div>
 
@@ -1161,6 +1164,10 @@ async function doLogin() {
 
   state.clubCode = clubCode;
   state.club = club;
+
+  // Save club code to localStorage for next visits
+  try { localStorage.setItem('rwgc-lastClubCode', clubCode); }
+  catch (e) { /* localStorage may be disabled */ }
 
   // Empty PIN → spectator mode
   if (!pin) return enterSpectator();
@@ -5054,37 +5061,41 @@ function renderSpectatorSettings() {
 
   const club = state.club;
   const allComps = club.competitions || {};
-  const todayComps = [];
-  for (const cid in allComps) {
-    if (isCompToday(allComps[cid])) {
-      todayComps.push({ cid, comp: allComps[cid] });
-    }
-  }
+  const compIds = Object.keys(allComps);
 
   $('spec-title').textContent = '📺 Mode Spectateur';
   $('spec-subtitle').textContent = `${club.name || state.clubCode} · Configuration`;
 
-  if (todayComps.length === 0) {
+  if (compIds.length === 0) {
     $('spec-content').innerHTML = `
       <div class="card">
-        <div class="card-title">Aucune compétition du jour</div>
+        <div class="card-title">Aucune compétition</div>
         <div class="card-meta" style="margin-top: 8px;">
-          Aucune compétition ne semble être planifiée pour aujourd'hui.
-          Les compétitions sont détectées automatiquement quand leur nom contient la date du jour
-          (ex: "${new Date().getDate()} mai" ou "${new Date().getDate()}/${String(new Date().getMonth()+1).padStart(2,'0')}").
+          Il n'y a aucune compétition dans ce club. Demande à l'admin d'en créer une.
         </div>
-      </div>
-      <div style="margin-top: 12px; padding: 12px; background: var(--cream); border-radius: 8px;">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Toutes les compétitions du club :</div>
-        ${Object.keys(allComps).length === 0 ? '<div style="color: var(--muted); font-size: 13px;">Aucune compétition.</div>' :
-          Object.entries(allComps).map(([cid, c]) =>
-            `<div style="font-size: 13px; padding: 4px 0; color: var(--muted);">• ${escapeHtml(c.name || '?')}</div>`
-          ).join('')
-        }
       </div>
     `;
     return;
   }
+
+  // Compute current selection: use saved selection if exists, otherwise auto-select "today" comps
+  const savedSelection = club.spectatorSelection || null;
+  let selection;
+  if (savedSelection) {
+    selection = {};
+    compIds.forEach(cid => { selection[cid] = !!savedSelection[cid]; });
+  } else {
+    selection = {};
+    compIds.forEach(cid => { selection[cid] = isCompToday(allComps[cid]); });
+  }
+
+  // Sort comps: today first, then by name
+  const sortedCompIds = compIds.slice().sort((a, b) => {
+    const aToday = isCompToday(allComps[a]) ? 0 : 1;
+    const bToday = isCompToday(allComps[b]) ? 0 : 1;
+    if (aToday !== bToday) return aToday - bToday;
+    return (allComps[a].name || '').localeCompare(allComps[b].name || '');
+  });
 
   // Settings form
   const currentDuration = state.specSettings.pageDuration / 1000;
@@ -5093,16 +5104,32 @@ function renderSpectatorSettings() {
     return `<button class="btn btn-sm ${cls}" style="flex:1;" onclick="setSpecDuration(${s})">${s}s</button>`;
   }).join('');
 
+  const nSelected = Object.values(selection).filter(v => v).length;
+
   $('spec-content').innerHTML = `
     <div class="card">
-      <div class="card-title">${todayComps.length} compétition${todayComps.length>1?'s':''} du jour</div>
-      <div style="margin-top: 8px;">
-        ${todayComps.map(({comp}) => `
-          <div style="padding: 6px 0; font-size: 13px;">
-            🏌️ <b>${escapeHtml(comp.name)}</b>
-            <span style="color: var(--muted);">· ${comp.holes} trous · ${comp.gender === 'men' ? '♂ Hommes' : (comp.gender === 'ladies' ? '♀ Dames' : 'Mixte')}</span>
-          </div>
-        `).join('')}
+      <div class="card-title">Compétitions à afficher (${nSelected}/${compIds.length})</div>
+      <div class="card-meta" style="margin-top: 4px;">📅 Les compétitions du jour sont pré-cochées</div>
+      <div style="margin-top: 10px;">
+        ${sortedCompIds.map(cid => {
+          const c = allComps[cid];
+          const isToday = isCompToday(c);
+          const checked = selection[cid] ? 'checked' : '';
+          const nPlayers = (c.playerIds || []).length;
+          const genderLabel = c.gender === 'men' ? '♂ Hommes' : (c.gender === 'ladies' ? '♀ Dames' : 'Mixte');
+          return `
+            <label class="checkbox-row" style="display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--paper); border-radius: 8px; margin-bottom: 6px; cursor: pointer;">
+              <input type="checkbox" data-cid="${cid}" ${checked} onchange="toggleSpecCompSelection('${cid}', this.checked)" style="width: 20px; height: 20px;">
+              <span style="flex: 1;">
+                <div style="font-weight: 600; font-size: 14px;">${escapeHtml(c.name || '?')}</div>
+                <div style="font-size: 12px; color: var(--muted); margin-top: 2px;">
+                  ${c.holes} trous · ${genderLabel} · ${nPlayers} joueur${nPlayers>1?'s':''}
+                  ${isToday ? ' · <span style="color: #B27200; font-weight: 600;">📅 Du jour</span>' : ''}
+                </div>
+              </span>
+            </label>
+          `;
+        }).join('')}
       </div>
     </div>
 
@@ -5114,10 +5141,42 @@ function renderSpectatorSettings() {
       <div class="card-meta" style="margin-top: 8px;">${PAGE_SIZE_SPECTATOR} joueurs par page</div>
     </div>
 
-    <button class="btn btn-fairway btn-block" style="margin-top: 16px; font-size: 18px; padding: 16px;" onclick="startSpectatorCycle()">
-      ▶ Démarrer l'affichage
+    <button class="btn btn-fairway btn-block" style="margin-top: 16px; font-size: 18px; padding: 16px;" onclick="startSpectatorCycle()" ${nSelected === 0 ? 'disabled' : ''}>
+      ▶ Démarrer l'affichage${nSelected === 0 ? ' (sélectionner au moins 1 comp)' : ''}
     </button>
   `;
+}
+
+// Toggle a competition's spectator selection in Firebase
+function toggleSpecCompSelection(cid, checked) {
+  const club = state.club;
+  const allComps = club.competitions || {};
+  const savedSelection = club.spectatorSelection || null;
+
+  // Build current selection state (either saved, or computed from "today" defaults)
+  let selection;
+  if (savedSelection) {
+    selection = Object.assign({}, savedSelection);
+  } else {
+    selection = {};
+    Object.keys(allComps).forEach(c => { selection[c] = isCompToday(allComps[c]); });
+  }
+
+  // Apply the change
+  if (checked) {
+    selection[cid] = true;
+  } else {
+    delete selection[cid];
+  }
+
+  // Save to Firebase
+  const refPath = 'clubs/' + state.clubCode + '/spectatorSelection';
+  if (Object.keys(selection).length === 0) {
+    dbRef.child(refPath).remove();
+  } else {
+    dbRef.child(refPath).set(selection);
+  }
+  // The Firebase listener will trigger a re-render automatically
 }
 
 const PAGE_SIZE_SPECTATOR = 10;
@@ -5130,11 +5189,24 @@ function setSpecDuration(seconds) {
 function buildSpectatorPages() {
   const club = state.club;
   const allComps = club.competitions || {};
+  const savedSelection = club.spectatorSelection || null;
   const pages = [];
 
-  for (const cid in allComps) {
+  // Determine which comps to include
+  function isSelected(cid) {
+    if (savedSelection) return !!savedSelection[cid];
+    // Fallback: comps of the day
+    return isCompToday(allComps[cid]);
+  }
+
+  // Process comps in stable order (sorted by name) for predictable cycling
+  const sortedCompIds = Object.keys(allComps).sort((a, b) => {
+    return (allComps[a].name || '').localeCompare(allComps[b].name || '');
+  });
+
+  for (const cid of sortedCompIds) {
+    if (!isSelected(cid)) continue;
     const comp = allComps[cid];
-    if (!isCompToday(comp)) continue;
 
     // For each comp, determine which genders to show
     const compGender = comp.gender || 'mixed';
@@ -5340,6 +5412,9 @@ const __exports = [
   // Spectator mode
   'enterSpectator', 'exitSpectator', 'setSpecDuration', 'renderSpectatorSettings',
   'startSpectatorCycle', 'spectatorPause', 'spectatorNext', 'stopSpectatorCycle',
+  'toggleSpecCompSelection',
+  // Club memory
+  'disconnectClub',
   // Utilities exposed
   'show', 'closeModal', 'genPin'
 ];
@@ -5349,9 +5424,33 @@ __exports.forEach(name => {
 
 // Auto-focus on login
 window.addEventListener('DOMContentLoaded', () => {
+  // Restore last club code from localStorage
   const c = $('login-club');
-  if (c) c.focus();
+  const p = $('login-pin');
+  const savedClub = (function() {
+    try { return localStorage.getItem('rwgc-lastClubCode') || ''; }
+    catch (e) { return ''; }
+  })();
+  if (c && savedClub) {
+    c.value = savedClub;
+    // Show the "Changer de club" link
+    const link = $('disconnect-club-link');
+    if (link) link.style.display = 'inline';
+    // Focus PIN instead, since club is already filled
+    if (p) p.focus();
+  } else if (c) {
+    c.focus();
+  }
 });
+
+function disconnectClub() {
+  try { localStorage.removeItem('rwgc-lastClubCode'); }
+  catch (e) { /* localStorage may be disabled */ }
+  const c = $('login-club');
+  if (c) { c.value = ''; c.focus(); }
+  const link = $('disconnect-club-link');
+  if (link) link.style.display = 'none';
+}
 
 </script>
 </body>
