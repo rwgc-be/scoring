@@ -650,6 +650,10 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 
       <div id="login-error" style="margin-top: 10px; color: var(--birdie); font-size: 13px; text-align: center; min-height: 18px;"></div>
 
+      <div style="text-align: center; margin-top: 12px; padding: 10px; background: var(--cream); border-radius: 8px; font-size: 12px; color: var(--muted);">
+        📺 Laissez le code d'accès vide pour le <b>Mode Spectateur</b>
+      </div>
+
       <div style="text-align: center; margin-top: 14px; font-size: 11px; color: var(--muted);">
         <a href="#" onclick="showCreateClub();return false;" style="color: var(--fairway); text-decoration: none;">Créer un nouveau club</a>
       </div>
@@ -853,6 +857,20 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   </header>
   <div class="content">
     <div id="lb-pub-content"></div>
+  </div>
+</section>
+
+<!-- Spectator screen -->
+<section id="screen-spectator" class="screen">
+  <header class="header">
+    <button class="header-btn" onclick="exitSpectator()">←</button>
+    <div class="header-title">
+      <h1 id="spec-title">📺 Mode Spectateur</h1>
+      <div class="header-subtitle" id="spec-subtitle"></div>
+    </div>
+  </header>
+  <div class="content">
+    <div id="spec-content"></div>
   </div>
 </section>
 
@@ -1132,7 +1150,6 @@ async function doLogin() {
   const clubCode = ($('login-club').value || '').trim().toUpperCase();
   const pin = ($('login-pin').value || '').trim();
   if (!clubCode) return loginError('Code club requis');
-  if (!/^\d{4}$/.test(pin)) return loginError('Code à 4 chiffres');
 
   let snap;
   try {
@@ -1144,6 +1161,12 @@ async function doLogin() {
 
   state.clubCode = clubCode;
   state.club = club;
+
+  // Empty PIN → spectator mode
+  if (!pin) return enterSpectator();
+
+  // PIN required to be 4 digits for other roles
+  if (!/^\d{4}$/.test(pin)) return loginError('Code à 4 chiffres (ou vide pour spectateur)');
 
   // Try admin
   if (club.adminPin === pin) return enterAdmin();
@@ -4950,6 +4973,320 @@ function renderLeaderboardPage(players, comp) {
   return html;
 }
 
+/* ─── SPECTATOR MODE ───────────────────────────────────── */
+
+// Detect if a competition is "today" based on its name
+// Looks for patterns like "14 mai", "14/05", "14-05", "14 mai 2026"
+function isCompToday(comp) {
+  if (!comp || !comp.name) return false;
+  const name = comp.name.toLowerCase();
+
+  const today = new Date();
+  const day = today.getDate();
+  const month = today.getMonth() + 1; // 1-12
+  const months = ['janvier','février','fevrier','mars','avril','mai','juin','juillet','août','aout','septembre','octobre','novembre','décembre','decembre'];
+  const monthNames = [
+    ['janvier'], ['février','fevrier'], ['mars'], ['avril'], ['mai'], ['juin'],
+    ['juillet'], ['août','aout'], ['septembre'], ['octobre'], ['novembre'], ['décembre','decembre']
+  ];
+
+  // Try numeric formats: "14/05", "14-05", "14.05", "05/14" (less common)
+  const numericPatterns = [
+    new RegExp(`\\b${day}[/.-]${String(month).padStart(2,'0')}\\b`),
+    new RegExp(`\\b${day}[/.-]${month}\\b`),
+    new RegExp(`\\b${String(day).padStart(2,'0')}[/.-]${String(month).padStart(2,'0')}\\b`)
+  ];
+  for (const re of numericPatterns) {
+    if (re.test(name)) return true;
+  }
+
+  // Try French textual formats: "14 mai", "14 mai 2026"
+  const monthVariants = monthNames[month - 1];
+  for (const monthName of monthVariants) {
+    const re = new RegExp(`\\b${day}\\s*${monthName}\\b`);
+    if (re.test(name)) return true;
+  }
+
+  return false;
+}
+
+function enterSpectator() {
+  state.role = 'spectator';
+  clearListeners();
+  state.specSettings = { pageDuration: 15000, pageSize: 10 };
+  state.specCycle = null;
+  show('screen-spectator');
+
+  listen(dbRef.child('clubs/' + state.clubCode), 'value', snap => {
+    const club = snap.val();
+    if (!club) {
+      $('spec-content').innerHTML = '<div class="empty"><div class="empty-icon">⚠</div><div class="empty-text">Club introuvable.</div></div>';
+      return;
+    }
+    state.club = club;
+    renderSpectatorSettings();
+  });
+}
+
+function exitSpectator() {
+  stopSpectatorCycle();
+  state.role = null;
+  state.specSettings = null;
+  state.specCycle = null;
+  state.compId = null;
+  state.comp = null;
+  state.clubCode = null;
+  clearListeners();
+  show('screen-login');
+}
+
+function stopSpectatorCycle() {
+  if (state.specCycle) {
+    if (state.specCycle.timer) clearTimeout(state.specCycle.timer);
+    if (state.specCycle.countdownTimer) clearInterval(state.specCycle.countdownTimer);
+    state.specCycle = null;
+  }
+}
+
+function renderSpectatorSettings() {
+  // Don't re-render if cycle is running
+  if (state.specCycle && state.specCycle.running) return;
+
+  const club = state.club;
+  const allComps = club.competitions || {};
+  const todayComps = [];
+  for (const cid in allComps) {
+    if (isCompToday(allComps[cid])) {
+      todayComps.push({ cid, comp: allComps[cid] });
+    }
+  }
+
+  $('spec-title').textContent = '📺 Mode Spectateur';
+  $('spec-subtitle').textContent = `${club.name || state.clubCode} · Configuration`;
+
+  if (todayComps.length === 0) {
+    $('spec-content').innerHTML = `
+      <div class="card">
+        <div class="card-title">Aucune compétition du jour</div>
+        <div class="card-meta" style="margin-top: 8px;">
+          Aucune compétition ne semble être planifiée pour aujourd'hui.
+          Les compétitions sont détectées automatiquement quand leur nom contient la date du jour
+          (ex: "${new Date().getDate()} mai" ou "${new Date().getDate()}/${String(new Date().getMonth()+1).padStart(2,'0')}").
+        </div>
+      </div>
+      <div style="margin-top: 12px; padding: 12px; background: var(--cream); border-radius: 8px;">
+        <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px;">Toutes les compétitions du club :</div>
+        ${Object.keys(allComps).length === 0 ? '<div style="color: var(--muted); font-size: 13px;">Aucune compétition.</div>' :
+          Object.entries(allComps).map(([cid, c]) =>
+            `<div style="font-size: 13px; padding: 4px 0; color: var(--muted);">• ${escapeHtml(c.name || '?')}</div>`
+          ).join('')
+        }
+      </div>
+    `;
+    return;
+  }
+
+  // Settings form
+  const currentDuration = state.specSettings.pageDuration / 1000;
+  const durationButtons = [10, 15, 20, 30, 60].map(s => {
+    const cls = (s === currentDuration) ? 'btn-fairway' : 'btn-secondary';
+    return `<button class="btn btn-sm ${cls}" style="flex:1;" onclick="setSpecDuration(${s})">${s}s</button>`;
+  }).join('');
+
+  $('spec-content').innerHTML = `
+    <div class="card">
+      <div class="card-title">${todayComps.length} compétition${todayComps.length>1?'s':''} du jour</div>
+      <div style="margin-top: 8px;">
+        ${todayComps.map(({comp}) => `
+          <div style="padding: 6px 0; font-size: 13px;">
+            🏌️ <b>${escapeHtml(comp.name)}</b>
+            <span style="color: var(--muted);">· ${comp.holes} trous · ${comp.gender === 'men' ? '♂ Hommes' : (comp.gender === 'ladies' ? '♀ Dames' : 'Mixte')}</span>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+
+    <div class="card" style="margin-top: 10px;">
+      <div class="card-title">Durée d'affichage par page</div>
+      <div id="spec-duration-buttons" style="display: flex; gap: 6px; margin-top: 8px;">
+        ${durationButtons}
+      </div>
+      <div class="card-meta" style="margin-top: 8px;">${PAGE_SIZE_SPECTATOR} joueurs par page</div>
+    </div>
+
+    <button class="btn btn-fairway btn-block" style="margin-top: 16px; font-size: 18px; padding: 16px;" onclick="startSpectatorCycle()">
+      ▶ Démarrer l'affichage
+    </button>
+  `;
+}
+
+const PAGE_SIZE_SPECTATOR = 10;
+
+function setSpecDuration(seconds) {
+  state.specSettings.pageDuration = seconds * 1000;
+  renderSpectatorSettings();
+}
+
+function buildSpectatorPages() {
+  const club = state.club;
+  const allComps = club.competitions || {};
+  const pages = [];
+
+  for (const cid in allComps) {
+    const comp = allComps[cid];
+    if (!isCompToday(comp)) continue;
+
+    // For each comp, determine which genders to show
+    const compGender = comp.gender || 'mixed';
+    const gendersToShow = compGender === 'mixed' ? ['men', 'ladies'] : [compGender];
+
+    for (const gender of gendersToShow) {
+      // Build leaderboard for this gender
+      state.compId = cid;
+      state.comp = comp;
+      const data = buildLeaderboardData();
+      const filtered = filterLeaderboardByGender(data, gender);
+      if (filtered.length === 0) continue;
+      const nPages = Math.ceil(filtered.length / PAGE_SIZE_SPECTATOR);
+      for (let i = 0; i < nPages; i++) {
+        pages.push({
+          compId: cid,
+          comp,
+          gender,
+          pageIndex: i,
+          totalPages: nPages,
+          players: filtered.slice(i * PAGE_SIZE_SPECTATOR, (i + 1) * PAGE_SIZE_SPECTATOR),
+          totalPlayers: filtered.length
+        });
+      }
+    }
+  }
+
+  state.compId = null;
+  state.comp = null;
+  return pages;
+}
+
+function startSpectatorCycle() {
+  const pages = buildSpectatorPages();
+  if (pages.length === 0) {
+    alert('Aucun joueur à afficher dans les compétitions du jour.');
+    return;
+  }
+  state.specCycle = {
+    running: true,
+    pages,
+    currentIndex: 0,
+    timer: null,
+    countdownTimer: null,
+    paused: false
+  };
+  renderSpectatorPage();
+  scheduleSpectatorNext();
+}
+
+function scheduleSpectatorNext() {
+  if (!state.specCycle || !state.specCycle.running || state.specCycle.paused) return;
+  if (state.specCycle.timer) clearTimeout(state.specCycle.timer);
+  state.specCycle.timer = setTimeout(() => {
+    advanceSpectatorPage();
+  }, state.specSettings.pageDuration);
+}
+
+function advanceSpectatorPage() {
+  if (!state.specCycle) return;
+  // Rebuild pages each cycle to pick up score changes from Firebase
+  const freshPages = buildSpectatorPages();
+  if (freshPages.length === 0) {
+    state.specCycle.running = false;
+    renderSpectatorSettings();
+    return;
+  }
+  state.specCycle.pages = freshPages;
+  state.specCycle.currentIndex = (state.specCycle.currentIndex + 1) % freshPages.length;
+  renderSpectatorPage();
+  scheduleSpectatorNext();
+}
+
+function spectatorPause() {
+  if (!state.specCycle) return;
+  state.specCycle.paused = !state.specCycle.paused;
+  if (state.specCycle.paused) {
+    if (state.specCycle.timer) clearTimeout(state.specCycle.timer);
+    if (state.specCycle.countdownTimer) clearInterval(state.specCycle.countdownTimer);
+  } else {
+    scheduleSpectatorNext();
+    startSpectatorCountdown();
+  }
+  renderSpectatorPage();
+}
+
+function spectatorNext() {
+  if (!state.specCycle) return;
+  advanceSpectatorPage();
+}
+
+function startSpectatorCountdown() {
+  if (state.specCycle.countdownTimer) clearInterval(state.specCycle.countdownTimer);
+  let remaining = Math.floor(state.specSettings.pageDuration / 1000);
+  state.specCycle.countdownTimer = setInterval(() => {
+    remaining--;
+    const el = document.getElementById('spec-countdown');
+    if (el) el.textContent = Math.max(0, remaining);
+    if (remaining <= 0) clearInterval(state.specCycle.countdownTimer);
+  }, 1000);
+}
+
+function renderSpectatorPage() {
+  const cycle = state.specCycle;
+  if (!cycle) return;
+  const page = cycle.pages[cycle.currentIndex];
+  if (!page) return;
+
+  const comp = page.comp;
+  const isNet = comp.scoring === 'net';
+  const genderLabel = page.gender === 'men' ? '♂ Hommes' : '♀ Dames';
+
+  // Set state.comp for rendering helpers
+  state.compId = page.compId;
+  state.comp = comp;
+
+  $('spec-title').textContent = comp.name || 'Compétition';
+  $('spec-subtitle').textContent = `${comp.holes} trous · ${isNet ? 'NET' : 'BRUT'} · ${genderLabel}`;
+
+  const startRank = page.pageIndex * PAGE_SIZE_SPECTATOR + 1;
+  const endRank = startRank + page.players.length - 1;
+
+  // Player rows with rank
+  const playersWithRanks = page.players.map(p => {
+    return { ...p, _rank: page.players.indexOf(p) + startRank };
+  });
+
+  const html = `
+    <div style="background: var(--fairway); color: var(--paper); padding: 14px 18px; border-radius: 12px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px;">
+      <div style="flex: 1;">
+        <div style="font-size: 13px; opacity: 0.85; letter-spacing: 0.05em; text-transform: uppercase;">${genderLabel}</div>
+        <div style="font-size: 18px; font-weight: 700; margin-top: 2px;">Page ${page.pageIndex + 1} / ${page.totalPages} · Rangs ${startRank}–${endRank}</div>
+        <div style="font-size: 12px; opacity: 0.85; margin-top: 2px;">${cycle.currentIndex + 1} / ${cycle.pages.length} affichages</div>
+      </div>
+    </div>
+    ${renderLeaderboardPage(playersWithRanks, comp)}
+    <div style="margin-top: 14px; display: flex; gap: 6px; align-items: center;">
+      <button class="btn btn-secondary btn-sm" onclick="spectatorPause()" style="flex:1;">
+        ${cycle.paused ? '▶ Reprendre' : '⏸ Pause'}
+      </button>
+      <button class="btn btn-secondary btn-sm" onclick="spectatorNext()" style="flex:1;">⏭ Suivante</button>
+      <button class="btn btn-secondary btn-sm" onclick="stopSpectatorCycle();renderSpectatorSettings();" style="flex:1;">⚙ Réglages</button>
+    </div>
+    <div style="margin-top: 8px; text-align: center; font-size: 12px; color: var(--muted);">
+      ${cycle.paused ? '⏸ En pause' : `🔁 Page suivante dans <span id="spec-countdown">${Math.floor(state.specSettings.pageDuration / 1000)}</span>s`}
+    </div>
+  `;
+  $('spec-content').innerHTML = html;
+
+  if (!cycle.paused) startSpectatorCountdown();
+}
+
 /* ═══════════════════════════════════════════════════════════
    WINDOW EXPOSES (for inline onclick handlers)
    ═══════════════════════════════════════════════════════════ */
@@ -5000,6 +5337,9 @@ const __exports = [
   // Public leaderboard
   'leaderboardBack', 'renderPublicLeaderboard',
   'startPresentation', 'stopPresentation',
+  // Spectator mode
+  'enterSpectator', 'exitSpectator', 'setSpecDuration', 'renderSpectatorSettings',
+  'startSpectatorCycle', 'spectatorPause', 'spectatorNext', 'stopSpectatorCycle',
   // Utilities exposed
   'show', 'closeModal', 'genPin'
 ];
