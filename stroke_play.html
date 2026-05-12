@@ -1691,6 +1691,10 @@ function editDbPlayer(pid) {
   if (!p) return;
   const currentGender = p.gender || '';
   const safeGender = escapeHtml(currentGender);
+
+  // Check if player has scores in any competition
+  const compsWithScores = getPlayerCompsWithScores(pid);
+
   const html = `
     <div class="modal-overlay" onclick="closeModal()">
       <div class="modal" onclick="event.stopPropagation()">
@@ -1708,6 +1712,15 @@ function editDbPlayer(pid) {
         <input id="ep-gender" type="hidden" value="${safeGender}">
         <label style="margin-top:10px;">Handicap</label>
         <input id="ep-hcp" type="number" step="0.1" value="${p.hcp != null ? p.hcp : ''}">
+
+        ${compsWithScores.length > 0 ? `
+        <div style="margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border);">
+          <button class="btn btn-secondary btn-block" onclick="openClearScoresModal('${pid}')" style="color: var(--birdie); border-color: var(--birdie); background: #FFEBEB;">
+            🗑 Effacer scores (${compsWithScores.length} comp${compsWithScores.length>1?'s':''})
+          </button>
+        </div>
+        ` : ''}
+
         <div class="modal-actions">
           <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
           <button class="btn btn-primary" onclick="saveEditPlayer('${pid}')">Enregistrer</button>
@@ -1716,6 +1729,172 @@ function editDbPlayer(pid) {
     </div>`;
   showModal(html);
 }
+// Returns list of {cid, comp, hasR1, hasR2, r1Count, r2Count} for comps where the player has scores
+function getPlayerCompsWithScores(pid) {
+  const comps = state.club.competitions || {};
+  const result = [];
+  for (const cid in comps) {
+    const comp = comps[cid];
+    const scoresR1 = ((comp.scores || {})[pid] || {})['r1'] || {};
+    const scoresR2 = ((comp.scores || {})[pid] || {})['r2'] || {};
+    const r1Count = Object.values(scoresR1).filter(v => v != null).length;
+    const r2Count = Object.values(scoresR2).filter(v => v != null).length;
+    if (r1Count > 0 || r2Count > 0) {
+      result.push({ cid, comp, hasR1: r1Count > 0, hasR2: r2Count > 0, r1Count, r2Count });
+    }
+  }
+  // Sort by createdAt desc
+  result.sort((a, b) => (b.comp.createdAt || 0) - (a.comp.createdAt || 0));
+  return result;
+}
+
+// Open the modal to choose which comp / which tour to clear
+function openClearScoresModal(pid) {
+  const p = (state.club.playersDB || {})[pid];
+  if (!p) return;
+  const compsWithScores = getPlayerCompsWithScores(pid);
+  if (compsWithScores.length === 0) {
+    alert('Ce joueur n\'a aucun score à effacer.');
+    return;
+  }
+
+  // Build comp options
+  const compOptions = compsWithScores.map(({cid, comp, r1Count, r2Count}) => {
+    const totalHoles = comp.holes || 18;
+    const label = `${comp.name || '?'} · ${comp.holes} trous`;
+    return `<option value="${cid}">${escapeHtml(label)}</option>`;
+  }).join('');
+
+  const html = `
+    <div class="modal-overlay" onclick="closeModal()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h3>🗑 Effacer scores</h3>
+        <p class="card-meta" style="margin-top: 6px;">Joueur : <b>${escapeHtml(getFullName(p))}</b></p>
+
+        <label style="margin-top:14px;">Compétition</label>
+        <select id="cs-comp" onchange="updateClearScoresRoundOptions('${pid}')">
+          ${compOptions}
+        </select>
+
+        <div id="cs-round-section" style="margin-top:14px;"></div>
+
+        <div id="cs-warning" style="margin-top: 12px; padding: 10px; background: #FFEBEB; border-radius: 8px; font-size: 13px; color: var(--birdie); display: none;">
+          ⚠ Cette action est <b>irréversible</b>. Les scores effacés ne peuvent pas être récupérés.
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="editDbPlayer('${pid}')">← Retour</button>
+          <button class="btn btn-primary" style="background: var(--birdie);" onclick="confirmClearScores('${pid}')">🗑 Effacer</button>
+        </div>
+      </div>
+    </div>`;
+  showModal(html);
+  updateClearScoresRoundOptions(pid);
+}
+
+// Update the "Tour" choices based on selected competition
+function updateClearScoresRoundOptions(pid) {
+  const cid = $('cs-comp').value;
+  const comp = (state.club.competitions || {})[cid];
+  if (!comp) return;
+  const compsWithScores = getPlayerCompsWithScores(pid);
+  const info = compsWithScores.find(c => c.cid === cid);
+  if (!info) return;
+
+  const is36 = comp.holes === 36;
+  let html;
+  if (is36) {
+    // Multiple round options
+    const r1Btn = info.hasR1
+      ? `<button class="btn btn-secondary" style="flex:1;" onclick="setClearScoresMode('r1')" id="cs-btn-r1">Tour 1 (${info.r1Count} trou${info.r1Count>1?'s':''})</button>`
+      : `<button class="btn btn-secondary" style="flex:1;" disabled>Tour 1 (vide)</button>`;
+    const r2Btn = info.hasR2
+      ? `<button class="btn btn-secondary" style="flex:1;" onclick="setClearScoresMode('r2')" id="cs-btn-r2">Tour 2 (${info.r2Count} trou${info.r2Count>1?'s':''})</button>`
+      : `<button class="btn btn-secondary" style="flex:1;" disabled>Tour 2 (vide)</button>`;
+    const bothBtn = (info.hasR1 && info.hasR2)
+      ? `<button class="btn btn-secondary btn-block" style="margin-top:6px;" onclick="setClearScoresMode('both')" id="cs-btn-both">Les deux tours</button>`
+      : '';
+    html = `
+      <label>Tour à effacer</label>
+      <div style="display:flex; gap:6px; margin-top: 6px;">
+        ${r1Btn}
+        ${r2Btn}
+      </div>
+      ${bothBtn}
+      <input id="cs-mode" type="hidden" value="">
+    `;
+  } else {
+    // 18 holes: single button
+    html = `
+      <div style="padding: 10px; background: var(--cream); border-radius: 8px; font-size: 13px;">
+        Tour 1 · ${info.r1Count} trou${info.r1Count>1?'s':''} saisi${info.r1Count>1?'s':''}
+      </div>
+      <input id="cs-mode" type="hidden" value="r1">
+    `;
+  }
+  $('cs-round-section').innerHTML = html;
+  // Show warning when 18-hole or auto-mode is set
+  if (!is36) $('cs-warning').style.display = 'block';
+}
+
+// Set the clear mode (r1/r2/both) and highlight the active button
+function setClearScoresMode(mode) {
+  $('cs-mode').value = mode;
+  ['cs-btn-r1', 'cs-btn-r2', 'cs-btn-both'].forEach(id => {
+    const b = $(id);
+    if (!b) return;
+    if (id === 'cs-btn-' + mode) {
+      b.className = 'btn btn-fairway';
+      b.style.flex = b.id === 'cs-btn-both' ? '' : '1';
+    } else {
+      b.className = 'btn btn-secondary';
+      b.style.flex = b.id === 'cs-btn-both' ? '' : '1';
+    }
+  });
+  $('cs-warning').style.display = 'block';
+}
+
+// Confirm and execute the clear
+async function confirmClearScores(pid) {
+  const cid = $('cs-comp').value;
+  const mode = $('cs-mode').value;
+  if (!mode) return alert('Choisis un tour à effacer.');
+
+  const comp = (state.club.competitions || {})[cid];
+  const p = (state.club.playersDB || {})[pid];
+  if (!comp || !p) return;
+
+  const compName = comp.name || '?';
+  const playerName = getFullName(p);
+  let modeLabel;
+  if (mode === 'r1') modeLabel = 'Tour 1';
+  else if (mode === 'r2') modeLabel = 'Tour 2';
+  else modeLabel = 'les 2 tours';
+
+  if (!confirm(`Effacer ${modeLabel} de ${playerName} dans "${compName}" ?\n\nCette action est IRRÉVERSIBLE.`)) {
+    return;
+  }
+
+  // Build the deletion updates
+  const basePath = 'clubs/' + state.clubCode + '/competitions/' + cid;
+  const updates = {};
+  if (mode === 'r1' || mode === 'both') {
+    updates['scores/' + pid + '/r1'] = null;
+  }
+  if (mode === 'r2' || mode === 'both') {
+    updates['scores/' + pid + '/r2'] = null;
+  }
+
+  try {
+    await dbRef.child(basePath).update(updates);
+    closeModal();
+    alert(`✓ ${modeLabel} de ${playerName} effacé(s).`);
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
 function setEPGender(g) {
   $('ep-gender').value = g;
   const btns = $('ep-gender-buttons').querySelectorAll('button');
@@ -5374,6 +5553,7 @@ const __exports = [
   'addPlayerToDb', 'saveNewPlayer', 'editDbPlayer', 'saveEditPlayer',
   'setNPGender', 'setEPGender', 'setLbGenderFilter', 'setPlayerGenderInline',
   'setDbGenderFilter',
+  'openClearScoresModal', 'updateClearScoresRoundOptions', 'setClearScoresMode', 'confirmClearScores',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
   'importPlayers', 'importAlbatros', 'parseImportPaste', 'doImportPlayers',
