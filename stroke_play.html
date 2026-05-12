@@ -218,6 +218,15 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 .gender-ladies {
   background: #FBE6EE !important;  /* pale pink */
 }
+.gender-input {
+  border: 2px solid var(--border) !important;
+  background: var(--paper) !important;
+  font-family: 'Fraunces', serif !important;
+  color: var(--fairway) !important;
+}
+.gender-input:focus { border-color: var(--fairway) !important; }
+.gender-men .gender-input { background: #B4D6EF !important; border-color: #6BA3CC !important; color: #1E4F73 !important; }
+.gender-ladies .gender-input { background: #F5C0D5 !important; border-color: #D67CA0 !important; color: #8B2F5C !important; }
 .gender-men.flight-card,
 .gender-ladies.flight-card { /* override card backgrounds for flights with single-gender players (not used yet) */ }
 
@@ -1100,26 +1109,45 @@ function cleanupLegacyFlightCodes(club) {
 // Auto-detect player genders from first names (one-time per session)
 function autoDetectPlayerGenders(club) {
   const players = club.playersDB || {};
-  const updates = {};
-  let detected = 0, unknown = 0;
+  let detected = 0, unknown = 0, errors = 0;
+  const toUpdate = [];
   for (const pid in players) {
     const p = players[pid];
     if (p.gender === 'men' || p.gender === 'ladies') continue; // already set
     const guess = guessGenderFromFirstName(p.firstName);
     if (guess) {
-      updates['playersDB/' + pid + '/gender'] = guess;
-      detected++;
+      toUpdate.push({ pid, guess, name: getFullName(p) });
     } else {
       unknown++;
+      console.log('  No gender guess for:', getFullName(p), '(firstName:', p.firstName, ')');
     }
   }
-  if (detected > 0) {
-    dbRef.child('clubs/' + state.clubCode).update(updates)
-      .then(() => {
-        console.log('Auto-detected gender for', detected, 'players.', unknown, 'still unknown.');
-      })
-      .catch(err => console.error('Gender detection error:', err));
+  if (toUpdate.length === 0) {
+    console.log('No player genders to update. Unknown:', unknown);
+    return;
   }
+  console.log('Will update', toUpdate.length, 'players (', unknown, 'unknown)');
+
+  // Write each player individually to ensure success and get proper error reporting
+  let completed = 0;
+  toUpdate.forEach(({ pid, guess, name }) => {
+    dbRef.child('clubs/' + state.clubCode + '/playersDB/' + pid + '/gender').set(guess)
+      .then(() => {
+        completed++;
+        detected++;
+        if (completed === toUpdate.length) {
+          console.log('✓ Successfully updated gender for', detected, 'players (', errors, 'errors,', unknown, 'unknown)');
+        }
+      })
+      .catch(err => {
+        completed++;
+        errors++;
+        console.error('✗ Failed to update gender for', name, '(pid:', pid, '):', err.message || err);
+        if (completed === toUpdate.length) {
+          console.log('Done. Updated:', detected, 'Errors:', errors, 'Unknown:', unknown);
+        }
+      });
+  });
 }
 
 function renderActiveAdminScreen() {
@@ -1419,7 +1447,9 @@ function renderPlayersDb() {
       ${ids.map(pid => {
         const p = players[pid];
         const search = ((p.firstName||'') + ' ' + (p.name||'')).toLowerCase();
-        return `<div class="player-row ${genderClass(p)}" data-search="${escapeHtml(search)}">
+        const genderLetter = p.gender === 'men' ? 'M' : (p.gender === 'ladies' ? 'L' : '');
+        return `<div class="player-row ${genderClass(p)}" id="prow-${pid}" data-search="${escapeHtml(search)}">
+          <input type="text" maxlength="1" value="${genderLetter}" class="gender-input" placeholder="?" title="M = Homme, L = Dame" oninput="setPlayerGenderInline('${pid}', this.value, this)" style="width: 32px; height: 32px; text-align: center; font-weight: 700; font-size: 16px; border-radius: 6px; padding: 0; flex-shrink: 0;">
           <div style="flex:1;">
             <div class="player-row-name">${escapeHtml(getFullName(p))}</div>
             ${p.hcp != null ? `<div class="player-row-meta">Hcp ${p.hcp}</div>` : ''}
@@ -1495,6 +1525,7 @@ function editDbPlayer(pid) {
   const p = (state.club.playersDB || {})[pid];
   if (!p) return;
   const currentGender = p.gender || '';
+  const safeGender = escapeHtml(currentGender);
   const html = `
     <div class="modal-overlay" onclick="closeModal()">
       <div class="modal" onclick="event.stopPropagation()">
@@ -1509,7 +1540,7 @@ function editDbPlayer(pid) {
           <button type="button" class="btn ${currentGender === 'men' ? 'btn-fairway' : 'btn-secondary'}" style="flex:1;" onclick="setEPGender('men')">♂ Homme</button>
           <button type="button" class="btn ${currentGender === 'ladies' ? 'btn-fairway' : 'btn-secondary'}" style="flex:1;" onclick="setEPGender('ladies')">♀ Dame</button>
         </div>
-        <input id="ep-gender" type="hidden" value="${currentGender}">
+        <input id="ep-gender" type="hidden" value="${safeGender}">
         <label style="margin-top:10px;">Handicap</label>
         <input id="ep-hcp" type="number" step="0.1" value="${p.hcp != null ? p.hcp : ''}">
         <div class="modal-actions">
@@ -1541,6 +1572,43 @@ function saveEditPlayer(pid) {
   if (hcp != null && !isNaN(hcp)) data.hcp = hcp;
   dbRef.child('clubs/' + state.clubCode + '/playersDB/' + pid).set(data);
   closeModal();
+}
+
+// Set player gender inline by typing M/L (or H/D/F) — instant save
+function setPlayerGenderInline(pid, letter, inputEl) {
+  const c = (letter || '').trim().toUpperCase();
+  let gender = null;
+  if (c === 'M' || c === 'H') gender = 'men';
+  else if (c === 'L' || c === 'D' || c === 'F') gender = 'ladies';
+  else if (c === '') {
+    // Allow clearing the gender
+    dbRef.child('clubs/' + state.clubCode + '/playersDB/' + pid + '/gender').remove();
+    // Visual feedback: remove gender classes
+    const row = document.getElementById('prow-' + pid);
+    if (row) { row.classList.remove('gender-men'); row.classList.remove('gender-ladies'); }
+    return;
+  } else {
+    // Invalid char — reset
+    if (inputEl) inputEl.value = '';
+    return;
+  }
+  // Normalize input display
+  if (inputEl) inputEl.value = (gender === 'men') ? 'M' : 'L';
+  // Save to Firebase
+  dbRef.child('clubs/' + state.clubCode + '/playersDB/' + pid + '/gender').set(gender)
+    .then(() => {
+      // Visual feedback: update row classes
+      const row = document.getElementById('prow-' + pid);
+      if (row) {
+        row.classList.remove('gender-men');
+        row.classList.remove('gender-ladies');
+        row.classList.add(gender === 'men' ? 'gender-men' : 'gender-ladies');
+      }
+    })
+    .catch(err => {
+      console.error('Gender save error:', err);
+      alert('Erreur enregistrement : ' + err.message);
+    });
 }
 
 function deleteDbPlayer(pid) {
@@ -4210,7 +4278,7 @@ const __exports = [
   'renameCurrentCourse', 'deleteCurrentCourse',
   // Players DB
   'addPlayerToDb', 'saveNewPlayer', 'editDbPlayer', 'saveEditPlayer',
-  'setNPGender', 'setEPGender', 'setLbGenderFilter',
+  'setNPGender', 'setEPGender', 'setLbGenderFilter', 'setPlayerGenderInline',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
   'importPlayers', 'importAlbatros', 'parseImportPaste', 'doImportPlayers',
