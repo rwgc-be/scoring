@@ -311,6 +311,31 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 .gender-men.flight-card,
 .gender-ladies.flight-card { /* override card backgrounds for flights with single-gender players (not used yet) */ }
 
+/* Score editor cells */
+.score-cell {
+  width: 100%;
+  text-align: center;
+  font-weight: 700;
+  font-size: 18px;
+  padding: 10px 4px;
+  border: 2px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  font-family: 'Fraunces', serif;
+  color: var(--ink);
+  transition: all 0.1s ease;
+}
+.score-cell:hover {
+  border-color: var(--fairway);
+}
+.score-cell:focus {
+  outline: none;
+  border: 3px solid var(--fairway);
+  background: #FFF8E7 !important;
+  box-shadow: 0 0 0 3px rgba(20, 83, 45, 0.2);
+  transform: scale(1.05);
+}
+
 /* ─── HOLE GRID (course editor) ──────────────────── */
 .hole-grid {
   display: grid; grid-template-columns: repeat(2, 1fr);
@@ -1768,11 +1793,10 @@ function showPlayerScoreEditor(pid, cid) {
           <td style="text-align:center; font-weight:600; padding: 8px 4px; color: var(--muted);">${i+1}</td>
           <td style="text-align:center; padding: 8px 4px; color: var(--ink);">${par}</td>
           <td style="padding: 4px;">
-            <input type="number" min="1" max="20" id="${inputId}" value="${value}"
+            <input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="2" class="score-cell" id="${inputId}" value="${value}"
                    data-round="${round}" data-hole="${i}" data-par="${par}"
-                   onkeydown="onScoreCellKey(event, ${round}, ${i})"
-                   onblur="saveScoreCell(${round}, ${i}, this.value)"
-                   style="width: 100%; text-align: center; font-weight: 700; font-size: 16px; padding: 8px; border: 2px solid var(--border); border-radius: 6px; ${cellBg}">
+                   data-cell="1"
+                   style="${cellBg}">
           </td>
         </tr>
       `;
@@ -1835,14 +1859,14 @@ function showPlayerScoreEditor(pid, cid) {
   let html = `
     <div style="position: fixed; inset: 0; background: var(--cream); z-index: 1000; display: flex; flex-direction: column; overflow-y: auto;">
       <header class="header" style="position: sticky; top: 0; z-index: 10;">
-        <button class="header-btn" onclick="closePlayerScoreEditor()">←</button>
+        <button class="header-btn" data-action="close-editor">←</button>
         <div class="header-title">
           <h1 style="font-size: 18px;">📝 ${escapeHtml(getFullName(p))}</h1>
           <div class="header-subtitle">${escapeHtml(c.name || '?')} · ${c.holes} trous</div>
         </div>
       </header>
       <div class="content" style="padding: 14px;">
-        <button class="btn btn-secondary btn-block" onclick="prefillScoresWithPars()" style="margin-bottom: 14px;">
+        <button class="btn btn-secondary btn-block" data-action="prefill-pars" style="margin-bottom: 14px;">
           ✨ Pré-remplir les cases vides avec les pars
         </button>
   `;
@@ -1858,7 +1882,7 @@ function showPlayerScoreEditor(pid, cid) {
     `;
   }
   html += `
-        <button class="btn btn-secondary btn-block" style="margin-top: 16px;" onclick="closePlayerScoreEditor()">← Retour</button>
+        <button class="btn btn-secondary btn-block" style="margin-top: 16px;" data-action="close-editor">← Retour</button>
       </div>
     </div>
   `;
@@ -1868,6 +1892,28 @@ function showPlayerScoreEditor(pid, cid) {
   container.id = 'player-score-editor-overlay';
   container.innerHTML = html;
   document.body.appendChild(container);
+
+  // Attach close button listeners (header AND footer) directly to avoid inline onclick scope issues
+  container.querySelectorAll('[data-action="close-editor"]').forEach(btn => {
+    btn.addEventListener('click', closePlayerScoreEditor);
+  });
+  // Prefill-pars button listener
+  container.querySelectorAll('[data-action="prefill-pars"]').forEach(btn => {
+    btn.addEventListener('click', prefillScoresWithPars);
+  });
+  // Score cell input listeners (more robust than inline onclick)
+  container.querySelectorAll('[data-cell="1"]').forEach(input => {
+    const round = parseInt(input.dataset.round, 10);
+    const hole = parseInt(input.dataset.hole, 10);
+    input.addEventListener('keydown', e => onScoreCellKey(e, round, hole));
+    input.addEventListener('focus', () => input.select());
+    input.addEventListener('blur', () => saveScoreCell(round, hole, input.value));
+    // Filter input to numeric only (prevents letters from appearing)
+    input.addEventListener('input', () => {
+      const filtered = input.value.replace(/[^\d]/g, '');
+      if (filtered !== input.value) input.value = filtered;
+    });
+  });
 
   // Focus on the first cell (Trou 1 of Tour 1)
   setTimeout(() => {
