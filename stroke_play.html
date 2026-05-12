@@ -855,6 +855,84 @@ function genderClass(p) {
   if (p.gender === 'ladies') return 'gender-ladies';
   return '';
 }
+
+// Guess gender from first name. Returns 'men', 'ladies', or null if uncertain.
+// Uses a name dictionary first, then heuristics on endings.
+const MALE_NAMES = new Set([
+  // Common French/Belgian male names
+  'thomas','pierre','marc','antoine','francois','jean','olivier','nicolas','stephane','christophe',
+  'philippe','bernard','luc','henri','xavier','geoffroy','jean-pierre','jean-charles','francois-xavier',
+  'charles-henri','charles','michel','paul','alain','patrick','daniel','laurent','gilles','vincent',
+  'frederic','jacques','andre','guillaume','julien','sebastien','david','benoit','dominique','eric',
+  'pascal','christian','jerome','arnaud','romain','maxime','quentin','alexandre','clement','damien',
+  'matthieu','mathieu','simon','adrien','baptiste','remi','remy','hugo','louis','antonin','tristan',
+  'theo','etienne','victor','arthur','pierre-louis','jean-baptiste','jean-marc','jean-luc','jean-claude',
+  'jean-francois','jean-paul','jean-michel','marc-antoine','marc-olivier','yves','herve','denis','rene',
+  'roland','serge','bruno','thierry','gerard','raymond','robert','gilbert','bertrand','aurelien','axel',
+  'fabien','florian','francis','franck','gregory','gregoire','jonathan','jordan','kevin','loic','ludovic',
+  'martin','mickael','michael','nathan','nicolas','olivier','raphael','sylvain','valentin','william','yann',
+  'yannick','alexis','tom','noah','leo','enzo','gabriel','liam','jules','timeo','lucas','ethan',
+  // International common
+  'john','mike','peter','paul','james','robert','david','michael','tom','steve','jack','andrew'
+]);
+
+const FEMALE_NAMES = new Set([
+  // Common French/Belgian female names
+  'sophie','catherine','isabelle','anne-marie','caroline','beatrice','veronique','pascale','eleonore',
+  'martine','marie-astrid','marie','anne','claire','laure','julie','emilie','camille','elise','emma',
+  'sarah','laura','lea','manon','clara','marine','aurelie','virginie','nathalie','francoise','christine',
+  'sylvie','brigitte','helene','dominique','dominic','beatrix','elisabeth','genevieve','marguerite',
+  'pauline','melanie','celine','stephanie','valerie','muriel','christelle','sandrine','severine','karine',
+  'corinne','florence','anne-sophie','marie-claire','marie-france','marie-helene','marie-josee',
+  'marie-laure','marie-louise','marie-pierre','marie-therese','marie-anne','agnes','agathe','alice',
+  'aline','alix','amelie','annick','anouk','astrid','aurore','barbara','bernadette','cecile','chantal',
+  'charlotte','clarisse','clemence','clementine','colette','constance','delphine','denise','diane',
+  'edith','eliane','eline','elsa','estelle','eve','evelyne','fabienne','fanny','floriane','francine',
+  'gabrielle','geraldine','ghislaine','gisele','hortense','ines','irene','isadora','jacqueline','jade',
+  'jeanne','jeanine','jenny','jessica','joanna','jocelyne','josephine','judith','juliette','justine',
+  'liliane','lise','lola','louise','lucie','lucile','ludivine','lydia','lydie','madeleine','maite',
+  'margaux','margot','mathilde','melissa','michele','michelle','monique','morgane','muriel','nadia',
+  'nadine','nicole','noemie','odette','odile','olivia','ophelie','patricia','perrine','rachel','renee',
+  'romane','rosalie','rose','sabine','salome','sandra','sarah','simone','solene','suzanne','thais',
+  'valentine','viviane','yolande','yvette','zoe','astrid','beatrice','eleonore',
+  // International common
+  'mary','jane','sarah','susan','jennifer','linda','patricia','karen','nancy','lisa','helen','anna'
+]);
+
+function normalizeForGenderGuess(name) {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // strip accents
+    .trim();
+}
+
+function guessGenderFromFirstName(firstName) {
+  if (!firstName) return null;
+  const norm = normalizeForGenderGuess(firstName);
+  if (!norm) return null;
+
+  // Try full match first
+  if (MALE_NAMES.has(norm)) return 'men';
+  if (FEMALE_NAMES.has(norm)) return 'ladies';
+
+  // Try first part of compound name (e.g. "Jean-Pierre" → check "jean")
+  const firstPart = norm.split(/[\s-]/)[0];
+  if (firstPart && firstPart !== norm) {
+    if (MALE_NAMES.has(firstPart)) return 'men';
+    if (FEMALE_NAMES.has(firstPart)) return 'ladies';
+  }
+
+  // Heuristic on endings (French gender patterns)
+  // Common female endings: -ette, -ine, -elle, -anne, -ie ending (not -mie/-ie male like)
+  if (/(ette|elle|anne|ienne|onne|aude|aude|ence|ance|isse|esse)$/i.test(norm)) return 'ladies';
+  if (/(ette|ique)$/i.test(norm)) return 'ladies';
+  // Most names ending in -a or -e (excluding -e French masculine ones) → female
+  if (/[a]$/i.test(norm)) return 'ladies';
+
+  return null; // uncertain
+}
+
 function loginError(msg) {
   $('login-error').textContent = msg;
   setTimeout(() => { $('login-error').textContent = ''; }, 3500);
@@ -984,6 +1062,7 @@ function enterAdmin() {
     if (!cleanupDone) {
       cleanupDone = true;
       cleanupLegacyFlightCodes(club);
+      autoDetectPlayerGenders(club);
     }
     if (state.compId) {
       state.comp = (club.competitions || {})[state.compId];
@@ -1015,6 +1094,31 @@ function cleanupLegacyFlightCodes(club) {
     dbRef.child('clubs/' + state.clubCode).update(updates)
       .then(() => console.log('Cleaned up', count, 'legacy flight codes'))
       .catch(err => console.error('Cleanup error:', err));
+  }
+}
+
+// Auto-detect player genders from first names (one-time per session)
+function autoDetectPlayerGenders(club) {
+  const players = club.playersDB || {};
+  const updates = {};
+  let detected = 0, unknown = 0;
+  for (const pid in players) {
+    const p = players[pid];
+    if (p.gender === 'men' || p.gender === 'ladies') continue; // already set
+    const guess = guessGenderFromFirstName(p.firstName);
+    if (guess) {
+      updates['playersDB/' + pid + '/gender'] = guess;
+      detected++;
+    } else {
+      unknown++;
+    }
+  }
+  if (detected > 0) {
+    dbRef.child('clubs/' + state.clubCode).update(updates)
+      .then(() => {
+        console.log('Auto-detected gender for', detected, 'players.', unknown, 'still unknown.');
+      })
+      .catch(err => console.error('Gender detection error:', err));
   }
 }
 
