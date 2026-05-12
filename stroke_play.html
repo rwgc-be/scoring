@@ -270,25 +270,31 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   transition: all 0.15s ease;
   box-shadow: 0 1px 2px rgba(0,0,0,0.05);
 }
-.btn-validate.to-validate {
+/* État "Non validé" — orange */
+.btn-validate.not-validated {
+  background: #F97316;
+  color: #FFFFFF;
+}
+.btn-validate.not-validated:hover {
+  background: #EA580C;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+.btn-validate.not-validated:active {
+  transform: translateY(0);
+}
+/* État "Validé" — vert plein */
+.btn-validate.validated {
   background: var(--fairway);
   color: var(--paper);
 }
-.btn-validate.to-validate:hover {
+.btn-validate.validated:hover {
   background: #0f3d28;
   transform: translateY(-1px);
   box-shadow: 0 3px 8px rgba(0,0,0,0.15);
 }
-.btn-validate.to-validate:active {
+.btn-validate.validated:active {
   transform: translateY(0);
-}
-.btn-validate.validated {
-  background: #F0F7F3;
-  color: var(--fairway);
-  border: 1.5px solid var(--fairway);
-}
-.btn-validate.validated:hover {
-  background: #E6F0EB;
 }
 .btn-validate-icon {
   display: inline-flex;
@@ -300,18 +306,7 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   background: rgba(255,255,255,0.25);
   font-size: 14px;
   line-height: 1;
-}
-.btn-validate.validated .btn-validate-icon {
-  background: var(--fairway);
-  color: var(--paper);
-}
-.btn-validate-status {
-  text-align: center;
-  margin-top: 12px;
-  padding: 10px;
-  font-size: 12px;
-  color: var(--muted);
-  border-top: 1px dashed var(--border);
+  font-family: 'Inter', sans-serif;
 }
 .gender-men.flight-card,
 .gender-ladies.flight-card { /* override card backgrounds for flights with single-gender players (not used yet) */ }
@@ -435,7 +430,13 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 }
 .player-score-name {
   font-weight: 600; font-size: 16px; flex: 1; min-width: 0;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
 }
 .player-score-total {
   font-size: 12px; color: var(--muted);
@@ -567,8 +568,15 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 .fcm-row:last-child { border-bottom: none; }
 .fcm-row-name {
   font-weight: 600; font-size: 15px;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis;
-  white-space: nowrap;
+  min-width: 0;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  /* Allow wrapping to up to 2 lines */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  line-height: 1.25;
 }
 .fcm-row-name-meta {
   font-size: 12px; color: var(--muted); margin-top: 2px;
@@ -4173,25 +4181,53 @@ function isHoleValidated(fid, round, holeIdx) {
   return validated[holeIdx] === true;
 }
 
-// Toggle validation status for a given hole
-// If unvalidated → validate + advance to next hole
-// If validated → unvalidate (stay on hole)
+// Toggle validation status for a given hole with cascade behavior:
+// - Validating hole N: also validates all holes 0..N-1 (and writes par for missing scores)
+// - Unvalidating hole N: also unvalidates all holes N+1..17
 async function toggleHoleValidation(fid, holeIdx) {
   const round = state.currentRound;
-  const path = 'clubs/' + state.clubCode + '/competitions/' + state.compId
-             + '/flights/' + fid + '/validatedHoles/r' + round + '/' + holeIdx;
+  const rKey = 'r' + round;
+  const c = state.comp;
+  const f = (c.flights || {})[fid];
+  if (!f) return;
+  const playerIds = f.playerIds || [];
+
+  const compPath = 'clubs/' + state.clubCode + '/competitions/' + state.compId;
+  const validPath = compPath + '/flights/' + fid + '/validatedHoles/' + rKey;
   const currentlyValidated = isHoleValidated(fid, round, holeIdx);
 
   try {
     if (currentlyValidated) {
-      // Unvalidate
-      await dbRef.child(path).remove();
+      // Cascade unvalidate: this hole + all higher holes
+      const updates = {};
+      for (let h = holeIdx; h < 18; h++) {
+        updates[h] = null;
+      }
+      await dbRef.child(validPath).update(updates);
     } else {
-      // Validate first
-      await dbRef.child(path).set(true);
-      // Then advance to next hole (only if not last hole)
+      // Cascade validate: this hole + all lower holes
+      // Also write par as default score for missing scores in these holes
+      const validateUpdates = {};
+      const scoreUpdates = {};
+      const scores = c.scores || {};
+      for (let h = 0; h <= holeIdx; h++) {
+        validateUpdates[h] = true;
+        const par = getHolePar(h, round);
+        playerIds.forEach(pid => {
+          const playerScores = (scores[pid] || {})[rKey] || {};
+          if (playerScores[h] == null) {
+            scoreUpdates['scores/' + pid + '/' + rKey + '/' + h] = par;
+          }
+        });
+      }
+      // Apply both updates (validation marks + default pars)
+      await dbRef.child(validPath).update(validateUpdates);
+      if (Object.keys(scoreUpdates).length > 0) {
+        await dbRef.child(compPath).update(scoreUpdates);
+      }
+      // Advance to next hole (only if not last)
       if (holeIdx < 17) {
-        fcmSetFlightHole(fid, holeIdx + 2); // holeIdx is 0-based, hole numbers are 1-based
+        fcmSetFlightHole(fid, holeIdx + 2);
       }
     }
   } catch (err) {
@@ -4319,14 +4355,6 @@ function renderFCMulti() {
           <button class="fcm-hole-nav-btn" onclick="fcmNextHoleFlight('${fid}')" ${currentHole === 18 ? 'disabled' : ''}>›</button>
         </div>`;
 
-      // Count how many players have a score on this hole (to show validate button only when all done)
-      let scoredCount = 0;
-      playerIds.forEach(pid => {
-        const ps = ((scores[pid] || {})[rKey] || {});
-        if (ps[holeIdx] != null) scoredCount++;
-      });
-      const allScored = scoredCount === playerIds.length;
-
       const rows = playerIds.map(pid => {
         const p = playersDB[pid] || { name: '?' };
         const playerScores = (scores[pid] || {})[rKey] || {};
@@ -4351,25 +4379,20 @@ function renderFCMulti() {
         </div>`;
       }).join('');
 
-      // Validation button (clean design)
-      let validationBar = '';
+      // Validation button — always clickable, 2 states
+      let validationBar;
       if (isValidated) {
         validationBar = `
           <button class="btn-validate validated" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
+            <span class="btn-validate-icon">✓</span>
             <span>Validé</span>
-            <span class="btn-validate-icon">✓</span>
-          </button>`;
-      } else if (allScored) {
-        validationBar = `
-          <button class="btn-validate to-validate" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
-            <span>Valider</span>
-            <span class="btn-validate-icon">✓</span>
           </button>`;
       } else {
         validationBar = `
-          <div class="btn-validate-status">
-            ${scoredCount}/${playerIds.length} score${playerIds.length>1?'s':''} saisi${scoredCount>1?'s':''}
-          </div>`;
+          <button class="btn-validate not-validated" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
+            <span class="btn-validate-icon">⊘</span>
+            <span>Non validé</span>
+          </button>`;
       }
 
       return `<div class="fcm-flight">
