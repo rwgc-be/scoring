@@ -250,6 +250,69 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   /* Prevent child elements from intercepting drag events */
   pointer-events: none;
 }
+
+/* Validation button (Fore Caddy view) */
+.btn-validate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 14px 16px;
+  border-radius: 10px;
+  font-family: 'Fraunces', serif;
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border: none;
+  transition: all 0.15s ease;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+.btn-validate.to-validate {
+  background: var(--fairway);
+  color: var(--paper);
+}
+.btn-validate.to-validate:hover {
+  background: #0f3d28;
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+}
+.btn-validate.to-validate:active {
+  transform: translateY(0);
+}
+.btn-validate.validated {
+  background: #F0F7F3;
+  color: var(--fairway);
+  border: 1.5px solid var(--fairway);
+}
+.btn-validate.validated:hover {
+  background: #E6F0EB;
+}
+.btn-validate-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.25);
+  font-size: 14px;
+  line-height: 1;
+}
+.btn-validate.validated .btn-validate-icon {
+  background: var(--fairway);
+  color: var(--paper);
+}
+.btn-validate-status {
+  text-align: center;
+  margin-top: 12px;
+  padding: 10px;
+  font-size: 12px;
+  color: var(--muted);
+  border-top: 1px dashed var(--border);
+}
 .gender-men.flight-card,
 .gender-ladies.flight-card { /* override card backgrounds for flights with single-gender players (not used yet) */ }
 
@@ -4288,21 +4351,23 @@ function renderFCMulti() {
         </div>`;
       }).join('');
 
-      // Validation checkbox/button
+      // Validation button (clean design)
       let validationBar = '';
       if (isValidated) {
         validationBar = `
-          <div style="margin-top: 10px; padding: 10px; background: #E6F0EB; border: 2px solid var(--fairway); border-radius: 8px; text-align: center; cursor: pointer;" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
-            <span style="color: var(--fairway); font-weight: 700; font-size: 15px;">☑ Trou validé · Cliquer pour défaire</span>
-          </div>`;
+          <button class="btn-validate validated" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
+            <span>Validé</span>
+            <span class="btn-validate-icon">✓</span>
+          </button>`;
       } else if (allScored) {
         validationBar = `
-          <div style="margin-top: 10px; padding: 10px; background: #FFF4D6; border: 2px dashed #B27200; border-radius: 8px; text-align: center; cursor: pointer;" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
-            <span style="color: #B27200; font-weight: 700; font-size: 15px;">☐ Valider ce trou (passer au suivant)</span>
-          </div>`;
+          <button class="btn-validate to-validate" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
+            <span>Valider</span>
+            <span class="btn-validate-icon">✓</span>
+          </button>`;
       } else {
         validationBar = `
-          <div style="margin-top: 10px; padding: 8px; text-align: center; color: var(--muted); font-size: 12px;">
+          <div class="btn-validate-status">
             ${scoredCount}/${playerIds.length} score${playerIds.length>1?'s':''} saisi${scoredCount>1?'s':''}
           </div>`;
       }
