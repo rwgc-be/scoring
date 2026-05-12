@@ -3382,15 +3382,14 @@ function prepareTour2() {
   const c = state.comp;
   if (!c || c.holes !== 36) return alert('Cette compétition n\'est pas en 36 trous.');
 
-  // Build leaderboard for Tour 1 only
+  // Build leaderboard for Tour 1 only (used for "reorganized" mode)
   const playersDB = state.club.playersDB || {};
   const playerIds = c.playerIds || [];
   const data = playerIds.map(pid => {
     const p = playersDB[pid] || { name: '?' };
     const r1 = getPlayerRoundData(pid, 1);
     return {
-      pid,
-      p,
+      pid, p,
       name: getFullName(p),
       hcp: p.hcp,
       strokes: r1.strokes,
@@ -3401,37 +3400,62 @@ function prepareTour2() {
     };
   });
 
-  // Players who haven't started Tour 1 are excluded
   const playedT1 = data.filter(d => d.holesPlayed > 0);
-  if (playedT1.length === 0) {
-    return alert('Aucun joueur n\'a commencé le Tour 1. Saisis d\'abord les scores.');
-  }
 
-  // Sort: by strokes DESC (worst first), then by hcp DESC (highest hcp first)
-  playedT1.sort((a, b) => {
-    if (b.strokes !== a.strokes) return b.strokes - a.strokes;
+  // Sort by diff vs par DESC (worst first), tie-break: hcp DESC
+  const sortedData = playedT1.slice().sort((a, b) => {
+    if (b.diff !== a.diff) return b.diff - a.diff;
     const ha = a.hcp == null ? -1 : a.hcp;
     const hb = b.hcp == null ? -1 : b.hcp;
     return hb - ha;
   });
 
-  // Stash in state for the modal
-  state.prepT2 = { sortedPlayerIds: playedT1.map(d => d.pid) };
+  // Build Tour 1 flights data (used for "identical" mode)
+  const allFlights = c.flights || {};
+  const tour1Flights = flightsForTour(allFlights, 1);
+  const tour1Ids = Object.keys(tour1Flights).sort((a, b) =>
+    (tour1Flights[a].teeTime || '').localeCompare(tour1Flights[b].teeTime || '')
+  );
+  const tour1Groups = tour1Ids.map(fid => ({
+    fid,
+    flight: tour1Flights[fid],
+    playerIds: tour1Flights[fid].playerIds || []
+  })).filter(g => g.playerIds.length > 0);
 
-  // Find first available flight number (start at next number after Tour 1)
-  const flights = c.flights || {};
-  const existingNums = Object.values(flights)
+  if (sortedData.length === 0 && tour1Groups.length === 0) {
+    return alert('Aucun flight Tour 1 et aucun score saisi. Impossible de préparer le Tour 2.');
+  }
+
+  // Determine first available flight number (next number after existing flights)
+  const existingNums = Object.values(allFlights)
     .map(f => parseInt((f.name || '').replace(/[^\d]/g, ''), 10))
     .filter(n => !isNaN(n));
   const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
 
-  // Render modal
+  state.prepT2 = {
+    mode: 'reorganize',
+    sortedData,
+    tour1Groups,
+    incomplete: playedT1.filter(d => d.holesPlayed < 18).length
+  };
+
+  const defaultSize = 3;
   const html = `
     <div class="modal-overlay" onclick="closeModal()">
       <div class="modal" onclick="event.stopPropagation()" style="max-width: 600px;">
         <div class="modal-handle"></div>
         <h3>🎯 Préparer Tour 2</h3>
-        <p class="card-meta" style="margin-top: 4px;">${playedT1.length} joueur${playedT1.length>1?'s':''} ont commencé le Tour 1</p>
+
+        <label style="margin-top: 12px;">Mode de constitution des flights</label>
+        <div id="pt2-mode-buttons" style="display:flex; gap:6px;">
+          <button type="button" class="btn btn-fairway" style="flex:1;" onclick="setPT2Mode('reorganize')">
+            Réorganisés selon résultats
+          </button>
+          <button type="button" class="btn btn-secondary" style="flex:1;" onclick="setPT2Mode('identical')" ${tour1Groups.length === 0 ? 'disabled' : ''}>
+            Identiques au Tour 1
+          </button>
+        </div>
+        <div id="pt2-mode-info" class="card-meta" style="margin-top: 6px;"></div>
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px;">
           <div>
@@ -3450,20 +3474,22 @@ function prepareTour2() {
           </div>
         </div>
 
-        <label style="margin-top:10px;">Joueurs par flight</label>
-        <div id="pt2-size-buttons" style="display: flex; gap: 6px;">
-          <button type="button" class="btn btn-secondary" style="flex:1;" onclick="setPT2Size(2)">2 joueurs</button>
-          <button type="button" class="btn btn-fairway" style="flex:1;" onclick="setPT2Size(3)">3 joueurs</button>
-          <button type="button" class="btn btn-secondary" style="flex:1;" onclick="setPT2Size(4)">4 joueurs</button>
+        <div id="pt2-size-row" style="margin-top:10px;">
+          <label>Joueurs par flight</label>
+          <div id="pt2-size-buttons" style="display: flex; gap: 6px;">
+            <button type="button" class="btn ${defaultSize===2?'btn-fairway':'btn-secondary'}" style="flex:1;" onclick="setPT2Size(2)">2 joueurs</button>
+            <button type="button" class="btn ${defaultSize===3?'btn-fairway':'btn-secondary'}" style="flex:1;" onclick="setPT2Size(3)">3 joueurs</button>
+            <button type="button" class="btn ${defaultSize===4?'btn-fairway':'btn-secondary'}" style="flex:1;" onclick="setPT2Size(4)">4 joueurs</button>
+          </div>
+          <input id="pt2-size" type="hidden" value="${defaultSize}">
         </div>
-        <input id="pt2-size" type="hidden" value="3">
 
         <label style="margin-top:10px;">Numéro du 1er flight</label>
         <input id="pt2-startnum" type="number" min="1" value="${nextNum}" oninput="updatePrepT2Preview()">
 
         <div style="margin-top: 14px; padding: 10px; background: var(--cream); border-radius: var(--radius-sm); max-height: 280px; overflow-y: auto;">
-          <div style="font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;">
-            Aperçu (les moins bons d'abord)
+          <div id="pt2-preview-title" style="font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;">
+            Aperçu
           </div>
           <div id="pt2-preview" style="font-size: 13px; color: var(--ink);"></div>
         </div>
@@ -3477,7 +3503,31 @@ function prepareTour2() {
       </div>
     </div>`;
   showModal(html);
-  setTimeout(updatePrepT2Preview, 50);
+  const initialMode = sortedData.length > 0 ? 'reorganize' : 'identical';
+  setTimeout(() => setPT2Mode(initialMode), 50);
+}
+
+function setPT2Mode(mode) {
+  if (!state.prepT2) return;
+  state.prepT2.mode = mode;
+  const btns = $('pt2-mode-buttons').querySelectorAll('button');
+  btns.forEach(b => {
+    const isReorganize = b.textContent.includes('Réorganisés');
+    const matches = (isReorganize && mode === 'reorganize') || (!isReorganize && mode === 'identical');
+    b.className = matches ? 'btn btn-fairway' : 'btn btn-secondary';
+    b.style.flex = '1';
+  });
+  const infoEl = $('pt2-mode-info');
+  if (mode === 'reorganize') {
+    const incomplete = state.prepT2.incomplete || 0;
+    const incompleteMsg = incomplete > 0 ? ` ⚠ ${incomplete} joueur${incomplete>1?'s ont':' a'} un Tour 1 incomplet.` : '';
+    infoEl.innerHTML = `📊 Les moins bons jouent en premier, les leaders en dernier (style PGA).${incompleteMsg}`;
+  } else {
+    infoEl.innerHTML = `🔁 Mêmes groupes de joueurs qu'au Tour 1, nouveaux horaires.`;
+  }
+  const sizeRow = $('pt2-size-row');
+  if (sizeRow) sizeRow.style.display = (mode === 'reorganize') ? '' : 'none';
+  updatePrepT2Preview();
 }
 
 function setPT2Size(n) {
@@ -3492,23 +3542,32 @@ function setPT2Size(n) {
 }
 
 function computePrepT2Plan() {
-  if (!state.prepT2 || !state.prepT2.sortedPlayerIds) return { error: 'État invalide' };
-  const sortedPlayerIds = state.prepT2.sortedPlayerIds;
+  if (!state.prepT2) return { error: 'État invalide' };
+  const mode = state.prepT2.mode || 'reorganize';
   const start = ($('pt2-start').value || '').trim();
   const interval = parseInt($('pt2-interval').value, 10) || 10;
-  const size = parseInt($('pt2-size').value, 10) || 3;
   const startNum = parseInt($('pt2-startnum').value, 10) || 1;
 
   if (!/^\d{2}:\d{2}$/.test(start)) return { error: 'Heure invalide' };
   if (interval <= 0) return { error: 'Intervalle > 0' };
 
-  // Group into flights of `size`
-  const groups = [];
-  for (let i = 0; i < sortedPlayerIds.length; i += size) {
-    groups.push(sortedPlayerIds.slice(i, i + size));
+  let groups;
+  let size;
+  if (mode === 'reorganize') {
+    size = parseInt($('pt2-size').value, 10) || 3;
+    const sortedIds = state.prepT2.sortedData.map(d => d.pid);
+    if (sortedIds.length === 0) return { error: 'Aucun joueur avec scores Tour 1' };
+    groups = [];
+    for (let i = 0; i < sortedIds.length; i += size) {
+      groups.push(sortedIds.slice(i, i + size));
+    }
+  } else {
+    const t1Groups = state.prepT2.tour1Groups || [];
+    if (t1Groups.length === 0) return { error: 'Aucun flight Tour 1' };
+    groups = t1Groups.map(g => g.playerIds.slice());
+    size = Math.max(...groups.map(g => g.length));
   }
 
-  // Existing tour 2 flight times to avoid conflicts
   const existingT2Times = new Set();
   const flights = state.comp.flights || {};
   Object.values(flights).forEach(f => {
@@ -3528,16 +3587,18 @@ function computePrepT2Plan() {
     flightsToCreate.push({
       name: 'Flight ' + String(startNum + i).padStart(3, '0'),
       time: timeStr,
-      playerIds: groups[i]
+      playerIds: groups[i],
+      maxPlayers: mode === 'reorganize' ? size : (groups[i].length || 3)
     });
     totalMin += interval;
   }
 
-  return { flightsToCreate, conflicts, size, totalPlayers: sortedPlayerIds.length };
+  return { mode, flightsToCreate, conflicts, size, totalPlayers: groups.reduce((s,g) => s + g.length, 0) };
 }
 
 function updatePrepT2Preview() {
   const previewEl = $('pt2-preview');
+  const titleEl = $('pt2-preview-title');
   const errorEl = $('pt2-error');
   if (!previewEl) return;
   errorEl.textContent = '';
@@ -3555,6 +3616,12 @@ function updatePrepT2Preview() {
 
   const flightsToCreate = result.flightsToCreate;
   const playersDB = state.club.playersDB || {};
+
+  if (titleEl) {
+    titleEl.textContent = result.mode === 'reorganize'
+      ? 'Aperçu (les moins bons d\'abord)'
+      : 'Aperçu (mêmes groupes que Tour 1)';
+  }
 
   const renderFlight = f => {
     const names = f.playerIds.map(pid => {
@@ -3575,7 +3642,8 @@ function updatePrepT2Preview() {
       + flightsToCreate.slice(-3).map(renderFlight).join('');
   }
 
-  const intro = `<div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">→ <b>${flightsToCreate.length} flight${flightsToCreate.length>1?'s':''}</b> · ${result.totalPlayers} joueurs (les moins bons en premier)</div>`;
+  const modeLabel = result.mode === 'reorganize' ? 'réorganisés' : 'identiques au Tour 1';
+  const intro = `<div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">→ <b>${flightsToCreate.length} flight${flightsToCreate.length>1?'s':''}</b> · ${result.totalPlayers} joueurs · ${modeLabel}</div>`;
   previewEl.innerHTML = intro + bodyHtml;
 }
 
@@ -3589,7 +3657,8 @@ async function doPrepareTour2() {
   const flightsToCreate = result.flightsToCreate;
   if (flightsToCreate.length === 0) return alert('Aucun flight à créer.');
 
-  if (!confirm(`Créer ${flightsToCreate.length} flights Tour 2 ?\n(Les flights Tour 1 ne sont pas modifiés.)`)) {
+  const modeLabel = result.mode === 'reorganize' ? 'réorganisés' : 'identiques au Tour 1';
+  if (!confirm(`Créer ${flightsToCreate.length} flights Tour 2 (${modeLabel}) ?\n(Les flights Tour 1 ne sont pas modifiés.)`)) {
     return;
   }
 
@@ -3602,7 +3671,7 @@ async function doPrepareTour2() {
       name: fl.name,
       teeTime: fl.time,
       playerIds: fl.playerIds,
-      maxPlayers: result.size,
+      maxPlayers: fl.maxPlayers,
       tour: 2
     };
   });
@@ -3610,13 +3679,13 @@ async function doPrepareTour2() {
   try {
     await dbRef.child(compPath + '/flights').update(updates);
     closeModal();
-    // Switch to Tour 2 view
     state.flightsTour = 2;
     alert(`${flightsToCreate.length} flights Tour 2 créés.`);
   } catch (err) {
     alert('Erreur : ' + err.message);
   }
 }
+
 
 // Get the tour of a flight (1 by default if not set)
 function getFlightTour(flight) {
@@ -6310,7 +6379,7 @@ const __exports = [
   'onIntervalPresetChange', 'replanFlights', 'updateReplanPreview', 'doReplanFlights',
   'createFlightsFromPlayers', 'setCFPSize', 'updateCFPPreview', 'doCreateFlightsFromPlayers',
   // Tour 2 reorganization
-  'setFlightsTour', 'prepareTour2', 'setPT2Size', 'updatePrepT2Preview', 'doPrepareTour2',
+  'setFlightsTour', 'prepareTour2', 'setPT2Mode', 'setPT2Size', 'updatePrepT2Preview', 'doPrepareTour2',
   'editFlight', 'saveFlightEdit', 'deleteFlight',
   'assignFlightPlayers',
   'onPlayerDragStart', 'onPlayerDragEnd', 'onFlightDragOver', 'onFlightDragLeave', 'onFlightDrop',
