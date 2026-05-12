@@ -1597,7 +1597,7 @@ function renderPlayersDb() {
         const playerGender = p.gender || 'none';
         return `<div class="player-row ${genderClass(p)}" id="prow-${pid}" data-search="${escapeHtml(search)}" data-gender="${playerGender}">
           <input type="text" maxlength="1" value="${genderLetter}" class="gender-input" placeholder="?" title="M = Homme, L = Dame" oninput="setPlayerGenderInline('${pid}', this.value, this)" style="width: 32px; height: 32px; text-align: center; font-weight: 700; font-size: 16px; border-radius: 6px; padding: 0; flex-shrink: 0;">
-          <div style="flex:1;">
+          <div style="flex:1; cursor: pointer;" onclick="openPlayerScoreEditor('${pid}')" title="Cliquer pour saisir les scores">
             <div class="player-row-name">${escapeHtml(getFullName(p))}</div>
             ${p.hcp != null ? `<div class="player-row-meta">Hcp ${p.hcp}</div>` : ''}
           </div>
@@ -1684,6 +1684,291 @@ function saveNewPlayer() {
   if (hcp != null && !isNaN(hcp)) data.hcp = hcp;
   dbRef.child('clubs/' + state.clubCode + '/playersDB/' + pid).set(data);
   closeModal();
+}
+
+/* ─── PLAYER SCORE EDITOR (table view) ──────────────── */
+
+// Open the score editor for a player.
+// If multiple comps, ask first; if only one, go straight to the table.
+function openPlayerScoreEditor(pid) {
+  const p = (state.club.playersDB || {})[pid];
+  if (!p) return;
+  const comps = state.club.competitions || {};
+  // Find all comps where the player is part of playerIds
+  const compsForPlayer = [];
+  for (const cid in comps) {
+    const c = comps[cid];
+    if ((c.playerIds || []).indexOf(pid) !== -1) {
+      compsForPlayer.push({ cid, comp: c });
+    }
+  }
+  if (compsForPlayer.length === 0) {
+    alert('Ce joueur n\'est dans aucune compétition. Ajoute-le d\'abord à une compétition.');
+    return;
+  }
+  if (compsForPlayer.length === 1) {
+    showPlayerScoreEditor(pid, compsForPlayer[0].cid);
+    return;
+  }
+  // Multiple comps: ask which one
+  const optionsHtml = compsForPlayer.map(({cid, comp}) =>
+    `<button class="btn btn-secondary btn-block" style="margin-bottom:8px; text-align:left;" onclick="showPlayerScoreEditor('${pid}','${cid}')">
+       <b>${escapeHtml(comp.name || '?')}</b><br>
+       <span style="font-size:12px; opacity:0.7;">${comp.holes} trous · ${comp.gender === 'men' ? '♂' : (comp.gender === 'ladies' ? '♀' : 'Mixte')}</span>
+     </button>`
+  ).join('');
+  const html = `
+    <div class="modal-overlay" onclick="closeModal()">
+      <div class="modal" onclick="event.stopPropagation()">
+        <div class="modal-handle"></div>
+        <h3>📝 Saisie scores</h3>
+        <p class="card-meta" style="margin-top: 4px;">Joueur : <b>${escapeHtml(getFullName(p))}</b></p>
+        <label style="margin-top: 12px;">Choisir la compétition</label>
+        <div style="margin-top: 6px;">${optionsHtml}</div>
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+        </div>
+      </div>
+    </div>`;
+  showModal(html);
+}
+
+// Show the score table editor (full screen modal)
+function showPlayerScoreEditor(pid, cid) {
+  const p = (state.club.playersDB || {})[pid];
+  const c = (state.club.competitions || {})[cid];
+  if (!p || !c) return;
+
+  // Save in state for re-render
+  state.scoreEditor = { pid, cid };
+  closeModal();
+
+  const nRounds = c.holes === 36 ? 2 : 1;
+  const playerScores = (c.scores || {})[pid] || {};
+
+  // Helper to render a round table
+  function renderRoundTable(round) {
+    const rKey = 'r' + round;
+    const rScores = playerScores[rKey] || {};
+    const courseId = (c.courseIds || [])[round - 1];
+    const course = (state.club.courses || {})[courseId];
+    const courseName = course ? course.name : `Tour ${round}`;
+
+    let rows = '';
+    let totalStrokes = 0, totalPar = 0, holesPlayed = 0;
+    for (let i = 0; i < 18; i++) {
+      const par = getHolePar(i, round);
+      const strokes = rScores[i];
+      const inputId = `pse-r${round}-h${i}`;
+      const cls = scoreClass(strokes, par);
+      const cellBg = strokes != null ? `background: ${scoreCellColor(strokes, par)};` : '';
+      const value = strokes != null ? strokes : '';
+      rows += `
+        <tr>
+          <td style="text-align:center; font-weight:600; padding: 8px 4px; color: var(--muted);">${i+1}</td>
+          <td style="text-align:center; padding: 8px 4px; color: var(--ink);">${par}</td>
+          <td style="padding: 4px;">
+            <input type="number" min="1" max="20" id="${inputId}" value="${value}"
+                   data-round="${round}" data-hole="${i}" data-par="${par}"
+                   onkeydown="onScoreCellKey(event, ${round}, ${i})"
+                   onblur="saveScoreCell(${round}, ${i}, this.value)"
+                   style="width: 100%; text-align: center; font-weight: 700; font-size: 16px; padding: 8px; border: 2px solid var(--border); border-radius: 6px; ${cellBg}">
+          </td>
+        </tr>
+      `;
+      if (strokes != null) {
+        totalStrokes += strokes;
+        totalPar += par;
+        holesPlayed++;
+      }
+    }
+
+    const diff = totalStrokes - totalPar;
+    const totalDisp = holesPlayed > 0
+      ? `${totalStrokes} strokes · ${formatDiff(diff, true)} · ${holesPlayed}/18 trous`
+      : '0 trou joué';
+    const diffStyle = holesPlayed > 0
+      ? `color: ${diffColor(diff, true)};`
+      : `color: var(--muted);`;
+
+    return `
+      <div class="card" style="margin-bottom: 14px;">
+        <div class="card-title">Tour ${round}${course ? ` — ${escapeHtml(course.name)}` : ''}</div>
+        <div class="card-meta" style="margin-top: 2px;">PAR ${course ? course.holes.reduce((s,h) => s + (h.par || 0), 0) : '?'}</div>
+        <table style="width:100%; margin-top:10px; border-collapse: separate; border-spacing: 0 2px;">
+          <thead>
+            <tr style="font-size: 11px; color: var(--muted); letter-spacing: 0.05em; text-transform: uppercase;">
+              <th style="text-align:center; padding: 6px 4px; width: 40px;">N°</th>
+              <th style="text-align:center; padding: 6px 4px; width: 50px;">Par</th>
+              <th style="text-align:center; padding: 6px 4px;">Score</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div style="margin-top: 10px; padding: 10px; background: var(--cream); border-radius: 8px; font-size: 14px; font-weight: 600; ${diffStyle}">
+          Total Tour ${round} : ${totalDisp}
+        </div>
+      </div>
+    `;
+  }
+
+  // Compute grand total
+  let grandStrokes = 0, grandPar = 0, grandPlayed = 0;
+  for (let r = 1; r <= nRounds; r++) {
+    const rScores = playerScores['r' + r] || {};
+    for (let i = 0; i < 18; i++) {
+      if (rScores[i] != null) {
+        grandStrokes += rScores[i];
+        grandPar += getHolePar(i, r);
+        grandPlayed++;
+      }
+    }
+  }
+  const grandDiff = grandStrokes - grandPar;
+  const totalHoles = nRounds * 18;
+  const grandTotalDisp = grandPlayed > 0
+    ? `${grandStrokes} strokes · ${formatDiff(grandDiff, true)} · ${grandPlayed}/${totalHoles} trous`
+    : 'Aucun score saisi';
+  const grandStyle = grandPlayed > 0 ? `color: ${diffColor(grandDiff, true)};` : 'color: var(--muted);';
+
+  // Build HTML
+  let html = `
+    <div style="position: fixed; inset: 0; background: var(--cream); z-index: 1000; display: flex; flex-direction: column; overflow-y: auto;">
+      <header class="header" style="position: sticky; top: 0; z-index: 10;">
+        <button class="header-btn" onclick="closePlayerScoreEditor()">←</button>
+        <div class="header-title">
+          <h1 style="font-size: 18px;">📝 ${escapeHtml(getFullName(p))}</h1>
+          <div class="header-subtitle">${escapeHtml(c.name || '?')} · ${c.holes} trous</div>
+        </div>
+      </header>
+      <div class="content" style="padding: 14px;">
+  `;
+  for (let r = 1; r <= nRounds; r++) {
+    html += renderRoundTable(r);
+  }
+  if (nRounds === 2) {
+    html += `
+      <div style="margin-top: 16px; padding: 14px; background: var(--fairway); color: var(--paper); border-radius: 12px; text-align: center;">
+        <div style="font-size: 11px; opacity: 0.85; letter-spacing: 0.05em; text-transform: uppercase;">Total général</div>
+        <div style="font-size: 18px; font-weight: 700; margin-top: 4px; ${grandStyle === 'color: var(--muted);' ? 'opacity: 0.7;' : ''}">${grandTotalDisp}</div>
+      </div>
+    `;
+  }
+  html += `
+        <button class="btn btn-secondary btn-block" style="margin-top: 16px;" onclick="closePlayerScoreEditor()">← Retour</button>
+      </div>
+    </div>
+  `;
+
+  // Inject as overlay
+  const container = document.createElement('div');
+  container.id = 'player-score-editor-overlay';
+  container.innerHTML = html;
+  document.body.appendChild(container);
+}
+
+function closePlayerScoreEditor() {
+  const el = document.getElementById('player-score-editor-overlay');
+  if (el) el.remove();
+  state.scoreEditor = null;
+}
+
+// Score cell color helper (background of input)
+function scoreCellColor(strokes, par) {
+  if (strokes == null) return '';
+  const diff = strokes - par;
+  if (diff <= -2) return '#D1FAE5';     // eagle/albatross : vert très clair
+  if (diff === -1) return '#A7F3D0';    // birdie : vert clair
+  if (diff === 0) return '#F3F4F6';     // par : gris très clair
+  if (diff === 1) return '#FED7AA';     // bogey : orange clair
+  if (diff === 2) return '#FECACA';     // double : rouge clair
+  return '#FCA5A5';                      // triple+ : rouge plus foncé
+}
+
+// Save a single score cell to Firebase
+async function saveScoreCell(round, holeIdx, value) {
+  if (!state.scoreEditor) return;
+  const { pid, cid } = state.scoreEditor;
+  const path = 'clubs/' + state.clubCode + '/competitions/' + cid + '/scores/' + pid + '/r' + round + '/' + holeIdx;
+  const v = (value || '').trim();
+  try {
+    if (v === '' || v === '0') {
+      await dbRef.child(path).remove();
+    } else {
+      const num = parseInt(v, 10);
+      if (isNaN(num) || num < 1 || num > 20) {
+        // Invalid value: revert
+        return;
+      }
+      await dbRef.child(path).set(num);
+    }
+    // Update local state.club to reflect the change (since Firebase listener may not be running here)
+    if (state.club && state.club.competitions && state.club.competitions[cid]) {
+      const comp = state.club.competitions[cid];
+      if (!comp.scores) comp.scores = {};
+      if (!comp.scores[pid]) comp.scores[pid] = {};
+      if (!comp.scores[pid]['r' + round]) comp.scores[pid]['r' + round] = {};
+      if (v === '' || v === '0') {
+        delete comp.scores[pid]['r' + round][holeIdx];
+      } else {
+        comp.scores[pid]['r' + round][holeIdx] = parseInt(v, 10);
+      }
+    }
+    // Update cell background and totals
+    updateScoreCellUI(round, holeIdx);
+    updateScoreTotals(round);
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+// Update the background color of a single cell after save
+function updateScoreCellUI(round, holeIdx) {
+  const input = document.getElementById(`pse-r${round}-h${holeIdx}`);
+  if (!input) return;
+  const par = parseInt(input.dataset.par, 10);
+  const v = (input.value || '').trim();
+  if (v === '') {
+    input.style.background = '';
+  } else {
+    input.style.background = scoreCellColor(parseInt(v, 10), par);
+  }
+}
+
+// Recompute the totals at the bottom of each round table
+function updateScoreTotals(round) {
+  if (!state.scoreEditor) return;
+  // Easiest: re-render the entire editor (preserve scroll position)
+  const scrollTop = window.scrollY;
+  const focusEl = document.activeElement;
+  const focusId = focusEl ? focusEl.id : null;
+  showPlayerScoreEditor(state.scoreEditor.pid, state.scoreEditor.cid);
+  window.scrollTo(0, scrollTop);
+  if (focusId) {
+    const newEl = document.getElementById(focusId);
+    if (newEl) newEl.focus();
+  }
+}
+
+// Keyboard navigation: Tab/Enter to save & next, Shift+Tab to prev
+function onScoreCellKey(e, round, holeIdx) {
+  // Tab: save and move to next cell
+  if (e.key === 'Tab' || e.key === 'Enter') {
+    e.preventDefault();
+    const input = e.target;
+    saveScoreCell(round, holeIdx, input.value);
+    // Find next cell
+    let nextRound = round;
+    let nextIdx = holeIdx + 1;
+    if (nextIdx >= 18) {
+      nextIdx = 0;
+      nextRound = round + 1;
+    }
+    setTimeout(() => {
+      const next = document.getElementById(`pse-r${nextRound}-h${nextIdx}`);
+      if (next) { next.focus(); next.select(); }
+    }, 50);
+  }
 }
 
 function editDbPlayer(pid) {
@@ -5554,6 +5839,8 @@ const __exports = [
   'setNPGender', 'setEPGender', 'setLbGenderFilter', 'setPlayerGenderInline',
   'setDbGenderFilter',
   'openClearScoresModal', 'updateClearScoresRoundOptions', 'setClearScoresMode', 'confirmClearScores',
+  'openPlayerScoreEditor', 'showPlayerScoreEditor', 'closePlayerScoreEditor',
+  'saveScoreCell', 'onScoreCellKey',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
   'importPlayers', 'importAlbatros', 'parseImportPaste', 'doImportPlayers',
