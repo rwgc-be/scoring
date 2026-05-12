@@ -3557,9 +3557,50 @@ function computePrepT2Plan() {
     size = parseInt($('pt2-size').value, 10) || 3;
     const sortedIds = state.prepT2.sortedData.map(d => d.pid);
     if (sortedIds.length === 0) return { error: 'Aucun joueur avec scores Tour 1' };
+
+    // Smart grouping: fill flights from the END (best players) with the requested size.
+    // The remainder is distributed across the FIRST 1 or 2 flights (worst players).
+    // sortedIds is ordered WORST → BEST. So the last `size` players get the last flight.
+    const n = sortedIds.length;
+    const nbFlights = Math.ceil(n / size);
     groups = [];
-    for (let i = 0; i < sortedIds.length; i += size) {
-      groups.push(sortedIds.slice(i, i + size));
+
+    if (nbFlights === 1) {
+      // Only 1 flight: take everyone
+      groups.push(sortedIds.slice());
+    } else {
+      // Number of "full" flights (size players each)
+      const fullFlights = Math.floor(n / size);
+      const remainder = n - fullFlights * size;
+
+      // If remainder is 0: all flights are full
+      if (remainder === 0) {
+        for (let i = 0; i < n; i += size) groups.push(sortedIds.slice(i, i + size));
+      } else if (remainder === 1) {
+        // 1 extra: take size+1 from worst into 2 first flights to split
+        // e.g. size=3, 25 players: 7 full + 1 leftover → first 2 = 2+2, then 7 of 3
+        // Pull (size - 1) from each of the 2 first flights so they become "size-1"
+        // Actually simpler: first flight = (remainder + size) split as (ceil, floor)
+        // But for remainder=1, that's just first=2, second=2 only if size=3 (= 1+3=4, 4/2=2)
+        // For size=4, 25 players → 6 full + 1 leftover → first 2 = 3, 2 OR 2, 3
+        const totalToSplit = remainder + size; // size + 1
+        const first = Math.ceil(totalToSplit / 2);
+        const second = totalToSplit - first;
+        // Take from the worst (start of array)
+        groups.push(sortedIds.slice(0, first));
+        groups.push(sortedIds.slice(first, first + second));
+        // Then fill the rest with full flights
+        for (let i = first + second; i < n; i += size) {
+          groups.push(sortedIds.slice(i, i + size));
+        }
+      } else {
+        // remainder >= 2: one "partial" flight in front, fully populated to `remainder` size
+        // Place all 'remainder' worst players in flight 1, then fully-sized flights
+        groups.push(sortedIds.slice(0, remainder));
+        for (let i = remainder; i < n; i += size) {
+          groups.push(sortedIds.slice(i, i + size));
+        }
+      }
     }
   } else {
     const t1Groups = state.prepT2.tour1Groups || [];
