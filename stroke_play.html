@@ -953,6 +953,8 @@ const state = {
   lbReturnTo: null,
   // Comp tab
   currentTab: 'setup',
+  // Tour displayed in Flights tab (1 or 2)
+  flightsTour: 1,
   // Filter for flight player picker
   flightPickerFilter: 'free',
 };
@@ -2856,7 +2858,8 @@ async function doImportAlbatrosFlights() {
     flightUpdates[fid] = {
       name: fl.name,
       teeTime: fl.time,
-      playerIds: ids
+      playerIds: ids,
+      tour: state.flightsTour || 1
     };
   });
 
@@ -3368,11 +3371,284 @@ function onFlightDrop(e, targetFid) {
   return handleFlightDrop.call(e.currentTarget, e);
 }
 
+// Switch the flights tab between Tour 1 and Tour 2
+function setFlightsTour(tour) {
+  state.flightsTour = tour;
+  renderCompFlights();
+}
+
+// Open modal to prepare Tour 2 flights (reorder by Tour 1 results)
+function prepareTour2() {
+  const c = state.comp;
+  if (!c || c.holes !== 36) return alert('Cette compétition n\'est pas en 36 trous.');
+
+  // Build leaderboard for Tour 1 only
+  const playersDB = state.club.playersDB || {};
+  const playerIds = c.playerIds || [];
+  const data = playerIds.map(pid => {
+    const p = playersDB[pid] || { name: '?' };
+    const r1 = getPlayerRoundData(pid, 1);
+    return {
+      pid,
+      p,
+      name: getFullName(p),
+      hcp: p.hcp,
+      strokes: r1.strokes,
+      par: r1.parPlayed,
+      diff: r1.diffVsPar,
+      holesPlayed: r1.holesPlayed,
+      finished: r1.finished
+    };
+  });
+
+  // Players who haven't started Tour 1 are excluded
+  const playedT1 = data.filter(d => d.holesPlayed > 0);
+  if (playedT1.length === 0) {
+    return alert('Aucun joueur n\'a commencé le Tour 1. Saisis d\'abord les scores.');
+  }
+
+  // Sort: by strokes DESC (worst first), then by hcp DESC (highest hcp first)
+  playedT1.sort((a, b) => {
+    if (b.strokes !== a.strokes) return b.strokes - a.strokes;
+    const ha = a.hcp == null ? -1 : a.hcp;
+    const hb = b.hcp == null ? -1 : b.hcp;
+    return hb - ha;
+  });
+
+  // Stash in state for the modal
+  state.prepT2 = { sortedPlayerIds: playedT1.map(d => d.pid) };
+
+  // Find first available flight number (start at next number after Tour 1)
+  const flights = c.flights || {};
+  const existingNums = Object.values(flights)
+    .map(f => parseInt((f.name || '').replace(/[^\d]/g, ''), 10))
+    .filter(n => !isNaN(n));
+  const nextNum = existingNums.length > 0 ? Math.max(...existingNums) + 1 : 1;
+
+  // Render modal
+  const html = `
+    <div class="modal-overlay" onclick="closeModal()">
+      <div class="modal" onclick="event.stopPropagation()" style="max-width: 600px;">
+        <div class="modal-handle"></div>
+        <h3>🎯 Préparer Tour 2</h3>
+        <p class="card-meta" style="margin-top: 4px;">${playedT1.length} joueur${playedT1.length>1?'s':''} ont commencé le Tour 1</p>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px;">
+          <div>
+            <label>Heure du 1er flight</label>
+            <input id="pt2-start" type="time" value="13:00" oninput="updatePrepT2Preview()">
+          </div>
+          <div>
+            <label>Intervalle</label>
+            <select id="pt2-interval" onchange="updatePrepT2Preview()">
+              <option value="8">8 min</option>
+              <option value="10" selected>10 min</option>
+              <option value="12">12 min</option>
+              <option value="15">15 min</option>
+              <option value="20">20 min</option>
+            </select>
+          </div>
+        </div>
+
+        <label style="margin-top:10px;">Joueurs par flight</label>
+        <div id="pt2-size-buttons" style="display: flex; gap: 6px;">
+          <button type="button" class="btn btn-secondary" style="flex:1;" onclick="setPT2Size(2)">2 joueurs</button>
+          <button type="button" class="btn btn-fairway" style="flex:1;" onclick="setPT2Size(3)">3 joueurs</button>
+          <button type="button" class="btn btn-secondary" style="flex:1;" onclick="setPT2Size(4)">4 joueurs</button>
+        </div>
+        <input id="pt2-size" type="hidden" value="3">
+
+        <label style="margin-top:10px;">Numéro du 1er flight</label>
+        <input id="pt2-startnum" type="number" min="1" value="${nextNum}" oninput="updatePrepT2Preview()">
+
+        <div style="margin-top: 14px; padding: 10px; background: var(--cream); border-radius: var(--radius-sm); max-height: 280px; overflow-y: auto;">
+          <div style="font-size: 11px; color: var(--muted); margin-bottom: 6px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;">
+            Aperçu (les moins bons d'abord)
+          </div>
+          <div id="pt2-preview" style="font-size: 13px; color: var(--ink);"></div>
+        </div>
+
+        <div id="pt2-error" style="color: var(--birdie); font-size: 12px; margin-top: 8px; min-height: 16px;"></div>
+
+        <div class="modal-actions">
+          <button class="btn btn-secondary" onclick="closeModal()">Annuler</button>
+          <button class="btn btn-primary" onclick="doPrepareTour2()">Créer flights Tour 2</button>
+        </div>
+      </div>
+    </div>`;
+  showModal(html);
+  setTimeout(updatePrepT2Preview, 50);
+}
+
+function setPT2Size(n) {
+  $('pt2-size').value = String(n);
+  const btns = $('pt2-size-buttons').querySelectorAll('button');
+  btns.forEach(b => {
+    const size = parseInt(b.textContent, 10);
+    b.className = (size === n) ? 'btn btn-fairway' : 'btn btn-secondary';
+    b.style.flex = '1';
+  });
+  updatePrepT2Preview();
+}
+
+function computePrepT2Plan() {
+  if (!state.prepT2 || !state.prepT2.sortedPlayerIds) return { error: 'État invalide' };
+  const sortedPlayerIds = state.prepT2.sortedPlayerIds;
+  const start = ($('pt2-start').value || '').trim();
+  const interval = parseInt($('pt2-interval').value, 10) || 10;
+  const size = parseInt($('pt2-size').value, 10) || 3;
+  const startNum = parseInt($('pt2-startnum').value, 10) || 1;
+
+  if (!/^\d{2}:\d{2}$/.test(start)) return { error: 'Heure invalide' };
+  if (interval <= 0) return { error: 'Intervalle > 0' };
+
+  // Group into flights of `size`
+  const groups = [];
+  for (let i = 0; i < sortedPlayerIds.length; i += size) {
+    groups.push(sortedPlayerIds.slice(i, i + size));
+  }
+
+  // Existing tour 2 flight times to avoid conflicts
+  const existingT2Times = new Set();
+  const flights = state.comp.flights || {};
+  Object.values(flights).forEach(f => {
+    if (getFlightTour(f) === 2 && f.teeTime) existingT2Times.add(f.teeTime);
+  });
+
+  const [h, m] = start.split(':').map(Number);
+  let totalMin = h * 60 + m;
+  const flightsToCreate = [];
+  const conflicts = [];
+  for (let i = 0; i < groups.length; i++) {
+    const hh = Math.floor(totalMin / 60);
+    const mm = totalMin % 60;
+    if (hh >= 24) return { error: 'Heure dépasse 24:00' };
+    const timeStr = String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+    if (existingT2Times.has(timeStr)) conflicts.push(timeStr);
+    flightsToCreate.push({
+      name: 'Flight ' + String(startNum + i).padStart(3, '0'),
+      time: timeStr,
+      playerIds: groups[i]
+    });
+    totalMin += interval;
+  }
+
+  return { flightsToCreate, conflicts, size, totalPlayers: sortedPlayerIds.length };
+}
+
+function updatePrepT2Preview() {
+  const previewEl = $('pt2-preview');
+  const errorEl = $('pt2-error');
+  if (!previewEl) return;
+  errorEl.textContent = '';
+
+  const result = computePrepT2Plan();
+  if (result.error) {
+    previewEl.textContent = '—';
+    errorEl.textContent = result.error;
+    return;
+  }
+
+  if (result.conflicts.length > 0) {
+    errorEl.textContent = `Conflit d'heure(s) Tour 2 : ${result.conflicts.join(', ')} déjà pris(es).`;
+  }
+
+  const flightsToCreate = result.flightsToCreate;
+  const playersDB = state.club.playersDB || {};
+
+  const renderFlight = f => {
+    const names = f.playerIds.map(pid => {
+      const p = playersDB[pid] || { name:'?' };
+      const r1 = getPlayerRoundData(pid, 1);
+      const diff = formatDiff(r1.diffVsPar, r1.holesPlayed > 0);
+      return `${escapeHtml(p.name || '?')} (${diff})`;
+    }).join(', ');
+    return `<div style="padding: 3px 0;">• <b>${escapeHtml(f.name)}</b> · ${f.time} · <span style="color: var(--muted); font-size: 12px;">${names}</span></div>`;
+  };
+
+  let bodyHtml = '';
+  if (flightsToCreate.length <= 12) {
+    bodyHtml = flightsToCreate.map(renderFlight).join('');
+  } else {
+    bodyHtml = flightsToCreate.slice(0, 6).map(renderFlight).join('')
+      + `<div style="color: var(--muted); margin: 4px 0;">… ${flightsToCreate.length - 9} flights …</div>`
+      + flightsToCreate.slice(-3).map(renderFlight).join('');
+  }
+
+  const intro = `<div style="font-size: 12px; color: var(--muted); margin-bottom: 8px;">→ <b>${flightsToCreate.length} flight${flightsToCreate.length>1?'s':''}</b> · ${result.totalPlayers} joueurs (les moins bons en premier)</div>`;
+  previewEl.innerHTML = intro + bodyHtml;
+}
+
+async function doPrepareTour2() {
+  const result = computePrepT2Plan();
+  if (result.error) return alert(result.error);
+  if (result.conflicts.length > 0) {
+    return alert(`Impossible : conflit d'heure(s) Tour 2 : ${result.conflicts.join(', ')}\nChange l'heure de départ.`);
+  }
+
+  const flightsToCreate = result.flightsToCreate;
+  if (flightsToCreate.length === 0) return alert('Aucun flight à créer.');
+
+  if (!confirm(`Créer ${flightsToCreate.length} flights Tour 2 ?\n(Les flights Tour 1 ne sont pas modifiés.)`)) {
+    return;
+  }
+
+  const compPath = 'clubs/' + state.clubCode + '/competitions/' + state.compId;
+  const baseTs = Date.now();
+  const updates = {};
+  flightsToCreate.forEach((fl, i) => {
+    const fid = 'ft2_' + baseTs + i;
+    updates[fid] = {
+      name: fl.name,
+      teeTime: fl.time,
+      playerIds: fl.playerIds,
+      maxPlayers: result.size,
+      tour: 2
+    };
+  });
+
+  try {
+    await dbRef.child(compPath + '/flights').update(updates);
+    closeModal();
+    // Switch to Tour 2 view
+    state.flightsTour = 2;
+    alert(`${flightsToCreate.length} flights Tour 2 créés.`);
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+// Get the tour of a flight (1 by default if not set)
+function getFlightTour(flight) {
+  return (flight && flight.tour === 2) ? 2 : 1;
+}
+
+// Filter flights by tour
+function flightsForTour(allFlights, tour) {
+  const result = {};
+  for (const fid in allFlights) {
+    if (getFlightTour(allFlights[fid]) === tour) {
+      result[fid] = allFlights[fid];
+    }
+  }
+  return result;
+}
+
 function renderCompFlights() {
   const c = state.comp;
-  const flights = c.flights || {};
+  const allFlights = c.flights || {};
   const playersDB = state.club.playersDB || {};
+  const is36 = c.holes === 36;
+
+  // Current tour displayed (default 1)
+  const currentTour = state.flightsTour || 1;
+  // Filter flights by tour
+  const flights = is36 ? flightsForTour(allFlights, currentTour) : allFlights;
   const ids = Object.keys(flights).sort((a,b) => (flights[a].teeTime||'').localeCompare(flights[b].teeTime||''));
+
+  // Count Tour 1 / Tour 2 separately
+  const tour1Count = Object.values(allFlights).filter(f => getFlightTour(f) === 1).length;
+  const tour2Count = Object.values(allFlights).filter(f => getFlightTour(f) === 2).length;
 
   const totalFlights = ids.length;
   const totalInFlights = ids.reduce((s,fid) => s + ((flights[fid].playerIds||[]).length), 0);
@@ -3382,18 +3658,39 @@ function renderCompFlights() {
   const existingSearch = $('flights-search');
   const currentQuery = existingSearch ? existingSearch.value : '';
 
-  // Compute "free" player IDs (in comp but not in any flight)
+  // Compute "free" player IDs (in comp but not in any flight of THIS tour)
   const assignedSet = new Set();
   Object.values(flights).forEach(f => (f.playerIds || []).forEach(pid => assignedSet.add(pid)));
   const freeIds = (c.playerIds || []).filter(pid => !assignedSet.has(pid));
 
-  let html = `
+  let html = '';
+
+  // Tour tabs (only for 36-hole comps)
+  if (is36) {
+    html += `
+      <div style="display:flex; gap:6px; margin-bottom: 12px; padding: 4px; background: var(--cream); border-radius: 10px;">
+        <button class="btn btn-sm ${currentTour === 1 ? 'btn-fairway' : 'btn-secondary'}" style="flex:1; border: none; ${currentTour === 1 ? '' : 'background: transparent;'}" onclick="setFlightsTour(1)">
+          Tour 1 (${tour1Count})
+        </button>
+        <button class="btn btn-sm ${currentTour === 2 ? 'btn-fairway' : 'btn-secondary'}" style="flex:1; border: none; ${currentTour === 2 ? '' : 'background: transparent;'}" onclick="setFlightsTour(2)">
+          Tour 2 (${tour2Count})
+        </button>
+      </div>
+    `;
+  }
+
+  // Action buttons (specific to current tour)
+  const prepareT2Btn = (is36 && currentTour === 1 && tour1Count > 0)
+    ? `<button class="btn btn-fairway btn-sm" style="flex:1; min-width: 100px;" onclick="prepareTour2()">🎯 Préparer Tour 2</button>`
+    : '';
+  html += `
     <div style="display:flex; gap:6px; margin-bottom: 12px; flex-wrap: wrap;">
       <button class="btn btn-secondary btn-sm" style="flex:1; min-width: 100px;" onclick="addFlight()">+ Nouveau</button>
       <button class="btn btn-secondary btn-sm" style="flex:1; min-width: 100px;" onclick="addMultipleFlights()">+ Plusieurs</button>
       <button class="btn btn-secondary btn-sm" style="flex:1; min-width: 100px;" onclick="createFlightsFromPlayers()">🎲 Depuis joueurs</button>
       <button class="btn btn-secondary btn-sm" style="flex:1; min-width: 100px;" onclick="replanFlights()">⏱ Replanifier</button>
       <button class="btn btn-secondary btn-sm" style="flex:1; min-width: 100px;" onclick="importAlbatros('flights')">🏌️ Albatros</button>
+      ${prepareT2Btn}
       <button class="btn btn-fairway btn-sm" style="flex:1; min-width: 100px;" onclick="adminEnterFCMulti()">🏌️ Vue Fore Caddy</button>
     </div>
   `;
@@ -3579,7 +3876,7 @@ function doAddFlight() {
 
   const fid = 'f' + Date.now();
   dbRef.child('clubs/' + state.clubCode + '/competitions/' + state.compId + '/flights/' + fid).set({
-    name, teeTime: time, playerIds: [], maxPlayers
+    name, teeTime: time, playerIds: [], maxPlayers, tour: state.flightsTour || 1
   });
   closeModal();
 }
@@ -3776,13 +4073,15 @@ async function doAddMultipleFlights() {
   // Build all flight updates
   const updates = {};
   const baseTs = Date.now();
+  const tour = state.flightsTour || 1;
   planned.forEach((p, i) => {
     const fid = 'f' + baseTs + i;
     updates[fid] = {
       name: p.name,
       teeTime: p.time,
       playerIds: [],
-      maxPlayers
+      maxPlayers,
+      tour
     };
   });
 
@@ -4099,13 +4398,15 @@ async function doCreateFlightsFromPlayers() {
 
     // Build flight updates
     const updates = {};
+    const tour = state.flightsTour || 1;
     flightsToCreate.forEach((fl, i) => {
       const fid = 'f' + baseTs + i;
       updates[fid] = {
         name: fl.name,
         teeTime: fl.time,
         playerIds: fl.playerIds,
-        maxPlayers: size
+        maxPlayers: size,
+        tour
       };
     });
 
@@ -4938,8 +5239,13 @@ function renderFCMulti() {
     state.currentRound = 1;
   }
 
-  // Flights (sorted by tee time)
-  const flights = c.flights || {};
+  // Flights (filtered by current tour, sorted by tee time)
+  const allFlights = c.flights || {};
+  const tourFlights = (c.holes === 36) ? flightsForTour(allFlights, state.currentRound) : allFlights;
+  // Fallback: if filtering returns nothing but flights exist (e.g. all are legacy tour 1), show all
+  const flights = (Object.keys(tourFlights).length === 0 && Object.keys(allFlights).length > 0)
+    ? allFlights
+    : tourFlights;
   const fids = Object.keys(flights).sort((a,b) => (flights[a].teeTime||'').localeCompare(flights[b].teeTime||''));
   const totalFlights = fids.length;
   const totalPages = Math.max(1, Math.ceil(totalFlights / FCM_PER_PAGE));
@@ -6003,6 +6309,8 @@ const __exports = [
   'addMultipleFlights', 'updateMultiFlightPreview', 'doAddMultipleFlights',
   'onIntervalPresetChange', 'replanFlights', 'updateReplanPreview', 'doReplanFlights',
   'createFlightsFromPlayers', 'setCFPSize', 'updateCFPPreview', 'doCreateFlightsFromPlayers',
+  // Tour 2 reorganization
+  'setFlightsTour', 'prepareTour2', 'setPT2Size', 'updatePrepT2Preview', 'doPrepareTour2',
   'editFlight', 'saveFlightEdit', 'deleteFlight',
   'assignFlightPlayers',
   'onPlayerDragStart', 'onPlayerDragEnd', 'onFlightDragOver', 'onFlightDragLeave', 'onFlightDrop',
