@@ -227,6 +227,22 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 .gender-input:focus { border-color: var(--fairway) !important; }
 .gender-men .gender-input { background: #B4D6EF !important; border-color: #6BA3CC !important; color: #1E4F73 !important; }
 .gender-ladies .gender-input { background: #F5C0D5 !important; border-color: #D67CA0 !important; color: #8B2F5C !important; }
+
+/* Drag & drop visual feedback */
+.flight-card.drop-target {
+  background: #E6F0EB !important;
+  border: 2px dashed var(--fairway) !important;
+  transform: scale(1.01);
+  transition: all 0.15s;
+}
+.flight-card.drop-full {
+  background: #FFEBEB !important;
+  border: 2px dashed var(--birdie) !important;
+  cursor: not-allowed;
+}
+.flight-player-row[draggable="true"]:active {
+  cursor: grabbing !important;
+}
 .gender-men.flight-card,
 .gender-ladies.flight-card { /* override card backgrounds for flights with single-gender players (not used yet) */ }
 
@@ -1441,14 +1457,37 @@ function renderPlayersDb() {
   // Preserve search query if input exists
   const existing = $('playersdb-search');
   const currentQuery = existing ? existing.value : '';
+  const currentGenderFilter = state.dbGenderFilter || 'all';
+
+  // Count by gender
+  let nMen = 0, nLadies = 0, nNone = 0;
+  ids.forEach(pid => {
+    const g = players[pid].gender;
+    if (g === 'men') nMen++;
+    else if (g === 'ladies') nLadies++;
+    else nNone++;
+  });
+
+  function filterBtn(value, label) {
+    const cls = (currentGenderFilter === value) ? 'btn-fairway' : 'btn-secondary';
+    return `<button class="btn btn-sm ${cls}" style="flex:1;" onclick="setDbGenderFilter('${value}')">${label}</button>`;
+  }
+
   el.innerHTML = `
-    <input type="text" id="playersdb-search" placeholder="🔎 Rechercher (${ids.length} joueurs)..." value="${escapeHtml(currentQuery)}" oninput="filterPlayersDbList(this.value)" autocomplete="off" style="margin-bottom: 10px;">
+    <input type="text" id="playersdb-search" placeholder="🔎 Rechercher (${ids.length} joueurs)..." value="${escapeHtml(currentQuery)}" oninput="filterPlayersDbList(this.value)" autocomplete="off" style="margin-bottom: 8px;">
+    <div style="display:flex; gap:4px; margin-bottom: 10px; flex-wrap: wrap;">
+      ${filterBtn('all', `Tous (${ids.length})`)}
+      ${filterBtn('men', `♂ Hommes (${nMen})`)}
+      ${filterBtn('ladies', `♀ Dames (${nLadies})`)}
+      ${nNone > 0 ? filterBtn('none', `? Sans genre (${nNone})`) : ''}
+    </div>
     <div id="playersdb-list-inner">
       ${ids.map(pid => {
         const p = players[pid];
         const search = ((p.firstName||'') + ' ' + (p.name||'')).toLowerCase();
         const genderLetter = p.gender === 'men' ? 'M' : (p.gender === 'ladies' ? 'L' : '');
-        return `<div class="player-row ${genderClass(p)}" id="prow-${pid}" data-search="${escapeHtml(search)}">
+        const playerGender = p.gender || 'none';
+        return `<div class="player-row ${genderClass(p)}" id="prow-${pid}" data-search="${escapeHtml(search)}" data-gender="${playerGender}">
           <input type="text" maxlength="1" value="${genderLetter}" class="gender-input" placeholder="?" title="M = Homme, L = Dame" oninput="setPlayerGenderInline('${pid}', this.value, this)" style="width: 32px; height: 32px; text-align: center; font-weight: 700; font-size: 16px; border-radius: 6px; padding: 0; flex-shrink: 0;">
           <div style="flex:1;">
             <div class="player-row-name">${escapeHtml(getFullName(p))}</div>
@@ -1459,15 +1498,33 @@ function renderPlayersDb() {
         </div>`;
       }).join('')}
     </div>`;
-  if (currentQuery) filterPlayersDbList(currentQuery);
+  applyPlayersDbFilters();
+}
+
+function setDbGenderFilter(val) {
+  state.dbGenderFilter = val;
+  // Just re-render to update button highlights
+  renderPlayersDb();
+}
+
+// Apply both search text and gender filter together
+function applyPlayersDbFilters() {
+  const searchInput = $('playersdb-search');
+  const query = searchInput ? searchInput.value : '';
+  const q = (query || '').toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const genderFilter = state.dbGenderFilter || 'all';
+
+  document.querySelectorAll('#playersdb-list-inner .player-row').forEach(row => {
+    const search = (row.dataset.search || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const matchSearch = !q || search.indexOf(q) !== -1;
+    const rowGender = row.dataset.gender || 'none';
+    const matchGender = (genderFilter === 'all') || (rowGender === genderFilter);
+    row.style.display = (matchSearch && matchGender) ? '' : 'none';
+  });
 }
 
 function filterPlayersDbList(query) {
-  const q = (query || '').toLowerCase().trim().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  document.querySelectorAll('#playersdb-list-inner .player-row').forEach(row => {
-    const search = (row.dataset.search || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    row.style.display = (!q || search.indexOf(q) !== -1) ? '' : 'none';
-  });
+  applyPlayersDbFilters();
 }
 
 function addPlayerToDb() {
@@ -2416,6 +2473,129 @@ function removeCompPlayer(pid) {
 }
 
 /* ─── COMP TAB: FLIGHTS ─────────────────────────── */
+/* ─── DRAG & DROP for flights (PC only) ──────────── */
+function onPlayerDragStart(e, pid, sourceFid) {
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', JSON.stringify({ pid, sourceFid }));
+  // Visual: dim the dragged element
+  setTimeout(() => { if (e.target.style) e.target.style.opacity = '0.4'; }, 0);
+}
+
+function onPlayerDragEnd(e) {
+  if (e.target.style) e.target.style.opacity = '1';
+  // Remove any drop highlights
+  document.querySelectorAll('.flight-card.drop-target, .flight-card.drop-full').forEach(el => {
+    el.classList.remove('drop-target');
+    el.classList.remove('drop-full');
+  });
+}
+
+function onFlightDragOver(e, fid) {
+  e.preventDefault(); // allow drop
+  const card = e.currentTarget;
+  // Check if target is full (allow drop if "__free__" zone)
+  if (fid !== '__free__') {
+    const isFull = card.dataset.isFull === '1';
+    if (isFull) {
+      card.classList.add('drop-full');
+      card.classList.remove('drop-target');
+      e.dataTransfer.dropEffect = 'none';
+      return;
+    }
+  }
+  card.classList.add('drop-target');
+  card.classList.remove('drop-full');
+  e.dataTransfer.dropEffect = 'move';
+}
+
+function onFlightDragLeave(e) {
+  const card = e.currentTarget;
+  card.classList.remove('drop-target');
+  card.classList.remove('drop-full');
+}
+
+async function onFlightDrop(e, targetFid) {
+  e.preventDefault();
+  const card = e.currentTarget;
+  card.classList.remove('drop-target');
+  card.classList.remove('drop-full');
+
+  let data;
+  try { data = JSON.parse(e.dataTransfer.getData('text/plain')); }
+  catch (err) { return; }
+  const { pid, sourceFid } = data;
+  if (!pid) return;
+  if (sourceFid === targetFid) return; // dropped on same flight, do nothing
+
+  const c = state.comp;
+  const flights = c.flights || {};
+  const playersDB = state.club.playersDB || {};
+  const player = playersDB[pid] || { name: '?' };
+  const playerName = getFullName(player);
+
+  // Check capacity if dropping into a real flight (not __free__)
+  if (targetFid !== '__free__') {
+    const targetFlight = flights[targetFid];
+    if (!targetFlight) return;
+    const targetMax = targetFlight.maxPlayers || 3;
+    const targetCount = (targetFlight.playerIds || []).length;
+    if (targetCount >= targetMax) {
+      alert(`⚠ Impossible : ${targetFlight.name} est plein (${targetCount}/${targetMax} joueurs).`);
+      return;
+    }
+  }
+
+  // Snapshot the old state (for undo)
+  const oldSourceIds = sourceFid === '__free__' ? null : ((flights[sourceFid] || {}).playerIds || []).slice();
+  const oldTargetIds = targetFid === '__free__' ? null : ((flights[targetFid] || {}).playerIds || []).slice();
+
+  // Build the new state
+  const newSourceIds = sourceFid === '__free__' ? null : oldSourceIds.filter(x => x !== pid);
+  const newTargetIds = targetFid === '__free__' ? null : [...oldTargetIds.filter(x => x !== pid), pid];
+
+  // Build the description for the undo banner
+  let description = '';
+  const sourceName = sourceFid === '__free__' ? '🆓 Sans flight' : (flights[sourceFid] ? flights[sourceFid].name : '?');
+  const targetName = targetFid === '__free__' ? '🆓 Sans flight' : (flights[targetFid] ? flights[targetFid].name : '?');
+  description = `${playerName} déplacé de ${sourceName} vers ${targetName}`;
+
+  // Apply the change
+  const compPath = 'clubs/' + state.clubCode + '/competitions/' + state.compId + '/flights';
+  const updates = {};
+  if (sourceFid !== '__free__') updates[sourceFid + '/playerIds'] = newSourceIds;
+  if (targetFid !== '__free__') updates[targetFid + '/playerIds'] = newTargetIds;
+
+  try {
+    await dbRef.child(compPath).update(updates);
+    // Save undo state
+    state.lastFlightMove = {
+      sourceFid, targetFid, pid,
+      oldSourceIds, oldTargetIds,
+      description
+    };
+    // Re-render via Firebase listener (it will trigger automatically)
+  } catch (err) {
+    alert('Erreur déplacement : ' + err.message);
+  }
+}
+
+async function undoLastFlightMove() {
+  if (!state.lastFlightMove) return;
+  const { sourceFid, targetFid, oldSourceIds, oldTargetIds } = state.lastFlightMove;
+
+  const compPath = 'clubs/' + state.clubCode + '/competitions/' + state.compId + '/flights';
+  const updates = {};
+  if (sourceFid !== '__free__' && oldSourceIds !== null) updates[sourceFid + '/playerIds'] = oldSourceIds;
+  if (targetFid !== '__free__' && oldTargetIds !== null) updates[targetFid + '/playerIds'] = oldTargetIds;
+
+  try {
+    await dbRef.child(compPath).update(updates);
+    state.lastFlightMove = null;
+  } catch (err) {
+    alert('Erreur annulation : ' + err.message);
+  }
+}
+
 function renderCompFlights() {
   const c = state.comp;
   const flights = c.flights || {};
@@ -2430,6 +2610,11 @@ function renderCompFlights() {
   const existingSearch = $('flights-search');
   const currentQuery = existingSearch ? existingSearch.value : '';
 
+  // Compute "free" player IDs (in comp but not in any flight)
+  const assignedSet = new Set();
+  Object.values(flights).forEach(f => (f.playerIds || []).forEach(pid => assignedSet.add(pid)));
+  const freeIds = (c.playerIds || []).filter(pid => !assignedSet.has(pid));
+
   let html = `
     <div style="display:flex; gap:6px; margin-bottom: 12px; flex-wrap: wrap;">
       <button class="btn btn-secondary btn-sm" style="flex:1; min-width: 100px;" onclick="addFlight()">+ Nouveau</button>
@@ -2441,6 +2626,16 @@ function renderCompFlights() {
     </div>
   `;
 
+  // Undo button (visible when there's a recent move)
+  if (state.lastFlightMove) {
+    html += `
+    <div id="undo-banner" style="background: #FFF4D6; border: 1px solid #E5C397; padding: 8px 12px; border-radius: 8px; margin-bottom: 12px; display: flex; align-items: center; gap: 10px;">
+      <span style="flex:1; font-size: 13px;">↶ ${escapeHtml(state.lastFlightMove.description || 'Dernier déplacement')}</span>
+      <button class="btn btn-secondary btn-sm" onclick="undoLastFlightMove()">Annuler</button>
+    </div>
+    `;
+  }
+
   if (ids.length === 0) {
     html += '<div class="empty"><div class="empty-icon">🚩</div><div class="empty-text">Aucun flight.</div></div>';
   } else {
@@ -2449,28 +2644,66 @@ function renderCompFlights() {
       <b>${totalFlights}</b> flight${totalFlights>1?'s':''} · <b>${totalInFlights}</b> joueur${totalInFlights>1?'s':''} en flight
       ${without > 0 ? ` · <span style="color: var(--birdie);"><b>${without}</b> sans flight</span>` : ''}
     </div>`;
+
+    // "Sans flight" panel (visible only if there are unassigned players)
+    if (freeIds.length > 0) {
+      html += `<div class="flight-card" style="border: 2px dashed #FFB95C; background: #FFFBEF;"
+                    data-flight-id="__free__"
+                    ondragover="onFlightDragOver(event, '__free__')"
+                    ondragleave="onFlightDragLeave(event)"
+                    ondrop="onFlightDrop(event, '__free__')">
+        <div class="flight-header">
+          <div class="flight-meta">
+            <div class="flight-name" style="color: #B27200;">🆓 Sans flight</div>
+            <span style="font-size: 11px; color: #B27200; background: #FFF4D6; padding: 2px 8px; border-radius: 6px;">${freeIds.length} joueur${freeIds.length>1?'s':''}</span>
+          </div>
+        </div>
+        <div class="flight-players">
+          ${freeIds.map(pid => {
+            const p = playersDB[pid] || { name: '(supprimé)' };
+            return `<div class="flight-player-row ${genderClass(p)}" draggable="true"
+                          ondragstart="onPlayerDragStart(event, '${pid}', '__free__')"
+                          ondragend="onPlayerDragEnd(event)"
+                          style="cursor: grab; padding: 4px 8px; border-radius: 4px; margin: 2px 0;">
+              <span class="flight-player-name">≡ ${escapeHtml(p.firstName || '')} <b>${escapeHtml(p.name || '')}</b></span>
+              ${p.hcp != null ? `<span class="flight-player-hcp">${p.hcp}</span>` : ''}
+            </div>`;
+          }).join('')}
+        </div>
+      </div>`;
+    }
+
     html += `<div id="flights-list-inner">`;
     html += ids.map(fid => {
       const f = flights[fid];
       const playerIds = f.playerIds || [];
       const players = playerIds.map(pid => playersDB[pid] || null);
-      const playersList = players.map(p => {
+      const maxP = f.maxPlayers || 3;
+      const isFull = playerIds.length >= maxP;
+
+      const playersList = players.map((p, idx) => {
         if (!p) return `<div class="flight-player-row"><span style="color:var(--muted);"><i>(supprimé)</i></span></div>`;
-        return `<div class="flight-player-row ${genderClass(p)}" style="${p.gender ? 'padding: 4px 8px; border-radius: 4px; margin: 2px 0;' : ''}">
-          <span class="flight-player-name">${escapeHtml(p.firstName || '')} <b>${escapeHtml(p.name || '')}</b></span>
+        const pid = playerIds[idx];
+        return `<div class="flight-player-row ${genderClass(p)}" draggable="true"
+                      ondragstart="onPlayerDragStart(event, '${pid}', '${fid}')"
+                      ondragend="onPlayerDragEnd(event)"
+                      style="cursor: grab; padding: 4px 8px; border-radius: 4px; margin: 2px 0;">
+          <span class="flight-player-name">≡ ${escapeHtml(p.firstName || '')} <b>${escapeHtml(p.name || '')}</b></span>
           ${p.hcp != null ? `<span class="flight-player-hcp">${p.hcp}</span>` : ''}
         </div>`;
       }).join('');
       const playerSearch = players.filter(p => p).map(p => (p.firstName||'')+' '+(p.name||'')).join(' ');
       const searchText = ((f.name||'') + ' ' + (f.teeTime||'') + ' ' + (f.code||'') + ' ' + playerSearch).toLowerCase();
-      const maxP = f.maxPlayers || 3;
       const nP = players.length;
       let capacityBadge;
       if (nP === 0) capacityBadge = `<span style="font-size: 11px; color: var(--muted); background: var(--cream); padding: 2px 8px; border-radius: 6px;">0/${maxP}</span>`;
       else if (nP < maxP) capacityBadge = `<span style="font-size: 11px; color: #6B4A00; background: #FFF4D6; padding: 2px 8px; border-radius: 6px;">${nP}/${maxP}</span>`;
       else if (nP === maxP) capacityBadge = `<span style="font-size: 11px; color: var(--fairway); background: #E6F0EB; padding: 2px 8px; border-radius: 6px;">${nP}/${maxP} ✓</span>`;
       else capacityBadge = `<span style="font-size: 11px; color: var(--birdie); background: #FFEBEB; padding: 2px 8px; border-radius: 6px;">${nP}/${maxP} ⚠</span>`;
-      return `<div class="flight-card" data-search="${escapeHtml(searchText)}">
+      return `<div class="flight-card" data-search="${escapeHtml(searchText)}" data-flight-id="${fid}" data-is-full="${isFull ? '1' : '0'}"
+                    ondragover="onFlightDragOver(event, '${fid}')"
+                    ondragleave="onFlightDragLeave(event)"
+                    ondrop="onFlightDrop(event, '${fid}')">
         <div class="flight-header">
           <div class="flight-meta">
             <div class="flight-name">${escapeHtml(f.name || 'Flight')}</div>
@@ -4279,6 +4512,7 @@ const __exports = [
   // Players DB
   'addPlayerToDb', 'saveNewPlayer', 'editDbPlayer', 'saveEditPlayer',
   'setNPGender', 'setEPGender', 'setLbGenderFilter', 'setPlayerGenderInline',
+  'setDbGenderFilter',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
   'importPlayers', 'importAlbatros', 'parseImportPaste', 'doImportPlayers',
@@ -4298,6 +4532,8 @@ const __exports = [
   'createFlightsFromPlayers', 'setCFPSize', 'updateCFPPreview', 'doCreateFlightsFromPlayers',
   'editFlight', 'saveFlightEdit', 'deleteFlight',
   'assignFlightPlayers',
+  'onPlayerDragStart', 'onPlayerDragEnd', 'onFlightDragOver', 'onFlightDragLeave', 'onFlightDrop',
+  'undoLastFlightMove',
   'setFPFilter', 'filterFP', 'updateFPCounter', 'saveFlightPlayers',
   'filterFlightsList',
   // Score entry
