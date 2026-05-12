@@ -4100,6 +4100,42 @@ function fcmNextHoleFlight(fid) {
   if (h < 18) fcmSetFlightHole(fid, h + 1);
 }
 
+// Check if a hole is validated (locked) for a given flight
+function isHoleValidated(fid, round, holeIdx) {
+  const c = state.comp;
+  if (!c) return false;
+  const f = (c.flights || {})[fid];
+  if (!f) return false;
+  const validated = (f.validatedHoles || {})['r' + round] || {};
+  return validated[holeIdx] === true;
+}
+
+// Toggle validation status for a given hole
+// If unvalidated → validate + advance to next hole
+// If validated → unvalidate (stay on hole)
+async function toggleHoleValidation(fid, holeIdx) {
+  const round = state.currentRound;
+  const path = 'clubs/' + state.clubCode + '/competitions/' + state.compId
+             + '/flights/' + fid + '/validatedHoles/r' + round + '/' + holeIdx;
+  const currentlyValidated = isHoleValidated(fid, round, holeIdx);
+
+  try {
+    if (currentlyValidated) {
+      // Unvalidate
+      await dbRef.child(path).remove();
+    } else {
+      // Validate first
+      await dbRef.child(path).set(true);
+      // Then advance to next hole (only if not last hole)
+      if (holeIdx < 17) {
+        fcmSetFlightHole(fid, holeIdx + 2); // holeIdx is 0-based, hole numbers are 1-based
+      }
+    }
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
 // Save par as default score for all players of a flight at a given hole,
 // only if they don't already have a score there
 function saveDefaultParForFlight(fid, hole) {
@@ -4195,6 +4231,9 @@ function renderFCMulti() {
       const holeIdx = currentHole - 1;
       const par = getHolePar(holeIdx, state.currentRound);
 
+      // Check if this hole is validated (locked)
+      const isValidated = isHoleValidated(fid, state.currentRound, holeIdx);
+
       if (playerIds.length === 0) {
         return `<div class="fcm-flight">
           <div class="fcm-flight-header">
@@ -4205,16 +4244,25 @@ function renderFCMulti() {
         </div>`;
       }
 
-      // Per-flight hole bar
+      // Per-flight hole bar (with lock icon if validated)
+      const lockIcon = isValidated ? ' <span style="color: var(--gold);" title="Trou verrouillé">🔒</span>' : '';
       const holeBar = `
         <div class="fcm-hole-bar">
           <button class="fcm-hole-nav-btn" onclick="fcmPrevHoleFlight('${fid}')" ${currentHole === 1 ? 'disabled' : ''}>‹</button>
           <div class="fcm-hole-info">
-            <div class="fcm-hole-num-text">Trou ${currentHole}</div>
+            <div class="fcm-hole-num-text">Trou ${currentHole}${lockIcon}</div>
             <div class="fcm-hole-par-text">PAR ${par}</div>
           </div>
           <button class="fcm-hole-nav-btn" onclick="fcmNextHoleFlight('${fid}')" ${currentHole === 18 ? 'disabled' : ''}>›</button>
         </div>`;
+
+      // Count how many players have a score on this hole (to show validate button only when all done)
+      let scoredCount = 0;
+      playerIds.forEach(pid => {
+        const ps = ((scores[pid] || {})[rKey] || {});
+        if (ps[holeIdx] != null) scoredCount++;
+      });
+      const allScored = scoredCount === playerIds.length;
 
       const rows = playerIds.map(pid => {
         const p = playersDB[pid] || { name: '?' };
@@ -4222,21 +4270,43 @@ function renderFCMulti() {
         const strokes = playerScores[holeIdx];
         const cls = scoreClass(strokes, par);
         const label = scoreLabel(strokes, par) || (strokes == null ? 'Saisir' : '');
-        return `<div class="fcm-row ${genderClass(p)}" style="${p.gender ? 'padding: 12px 8px; border-radius: 6px; margin: 2px 0;' : ''}">
+        const disabledAttr = isValidated ? 'disabled' : '';
+        const lockedStyle = isValidated ? 'opacity: 0.7;' : '';
+        return `<div class="fcm-row ${genderClass(p)}" style="${p.gender ? 'padding: 12px 8px; border-radius: 6px; margin: 2px 0;' : ''}${lockedStyle}">
           <div>
             <div class="fcm-row-name">${escapeHtml(getFullName(p))}</div>
             ${p.hcp != null ? `<div class="fcm-row-name-meta">Hcp ${p.hcp}</div>` : ''}
           </div>
           <div class="fcm-stepper">
-            <button class="fcm-stepper-btn" onclick="fcmChangeScore('${pid}', '${fid}', -1)" ${strokes != null && strokes <= 1 ? 'disabled' : ''}>−</button>
+            <button class="fcm-stepper-btn" onclick="fcmChangeScore('${pid}', '${fid}', -1)" ${disabledAttr || (strokes != null && strokes <= 1 ? 'disabled' : '')}>−</button>
             <div class="fcm-stepper-display ${cls}">
               <div class="fcm-stepper-value">${strokes != null ? strokes : '–'}</div>
               ${label ? `<div class="fcm-stepper-label">${label}</div>` : ''}
             </div>
-            <button class="fcm-stepper-btn" onclick="fcmChangeScore('${pid}', '${fid}', 1)">+</button>
+            <button class="fcm-stepper-btn" onclick="fcmChangeScore('${pid}', '${fid}', 1)" ${disabledAttr}>+</button>
           </div>
         </div>`;
       }).join('');
+
+      // Validation checkbox/button
+      let validationBar = '';
+      if (isValidated) {
+        validationBar = `
+          <div style="margin-top: 10px; padding: 10px; background: #E6F0EB; border: 2px solid var(--fairway); border-radius: 8px; text-align: center; cursor: pointer;" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
+            <span style="color: var(--fairway); font-weight: 700; font-size: 15px;">☑ Trou validé · Cliquer pour défaire</span>
+          </div>`;
+      } else if (allScored) {
+        validationBar = `
+          <div style="margin-top: 10px; padding: 10px; background: #FFF4D6; border: 2px dashed #B27200; border-radius: 8px; text-align: center; cursor: pointer;" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
+            <span style="color: #B27200; font-weight: 700; font-size: 15px;">☐ Valider ce trou (passer au suivant)</span>
+          </div>`;
+      } else {
+        validationBar = `
+          <div style="margin-top: 10px; padding: 8px; text-align: center; color: var(--muted); font-size: 12px;">
+            ${scoredCount}/${playerIds.length} score${playerIds.length>1?'s':''} saisi${scoredCount>1?'s':''}
+          </div>`;
+      }
+
       return `<div class="fcm-flight">
         <div class="fcm-flight-header">
           <div class="fcm-flight-name">${escapeHtml(f.name || 'Flight')}</div>
@@ -4244,6 +4314,7 @@ function renderFCMulti() {
         </div>
         ${holeBar}
         ${rows}
+        ${validationBar}
       </div>`;
     }).join('');
   }
@@ -4263,6 +4334,10 @@ function renderFCMulti() {
 function fcmChangeScore(pid, fid, delta) {
   const currentHole = fcmGetFlightHole(fid);
   const holeIdx = currentHole - 1;
+  // Bail out if hole is validated
+  if (isHoleValidated(fid, state.currentRound, holeIdx)) {
+    return; // silently ignore changes when locked
+  }
   const par = getHolePar(holeIdx, state.currentRound);
   const c = state.comp;
   const playerScores = ((c.scores || {})[pid] || {})['r' + state.currentRound] || {};
@@ -4832,6 +4907,7 @@ const __exports = [
   'adminEnterFCMulti', 'enterFCMulti', 'fcMultiBack',
   'fcmSwitchRound',
   'fcmPrevHoleFlight', 'fcmNextHoleFlight',
+  'toggleHoleValidation',
   'fcmPrevPage', 'fcmNextPage', 'fcmChangeScore',
   // Public leaderboard
   'leaderboardBack', 'renderPublicLeaderboard',
