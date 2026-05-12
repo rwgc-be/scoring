@@ -1805,7 +1805,7 @@ function showPlayerScoreEditor(pid, cid) {
           </thead>
           <tbody>${rows}</tbody>
         </table>
-        <div style="margin-top: 10px; padding: 10px; background: var(--cream); border-radius: 8px; font-size: 14px; font-weight: 600; ${diffStyle}">
+        <div id="pse-total-r${round}" style="margin-top: 10px; padding: 10px; background: var(--cream); border-radius: 8px; font-size: 14px; font-weight: 600; ${diffStyle}">
           Total Tour ${round} : ${totalDisp}
         </div>
       </div>
@@ -1842,6 +1842,9 @@ function showPlayerScoreEditor(pid, cid) {
         </div>
       </header>
       <div class="content" style="padding: 14px;">
+        <button class="btn btn-secondary btn-block" onclick="prefillScoresWithPars()" style="margin-bottom: 14px;">
+          ✨ Pré-remplir les cases vides avec les pars
+        </button>
   `;
   for (let r = 1; r <= nRounds; r++) {
     html += renderRoundTable(r);
@@ -1850,7 +1853,7 @@ function showPlayerScoreEditor(pid, cid) {
     html += `
       <div style="margin-top: 16px; padding: 14px; background: var(--fairway); color: var(--paper); border-radius: 12px; text-align: center;">
         <div style="font-size: 11px; opacity: 0.85; letter-spacing: 0.05em; text-transform: uppercase;">Total général</div>
-        <div style="font-size: 18px; font-weight: 700; margin-top: 4px; ${grandStyle === 'color: var(--muted);' ? 'opacity: 0.7;' : ''}">${grandTotalDisp}</div>
+        <div id="pse-grand-total" style="font-size: 18px; font-weight: 700; margin-top: 4px; ${grandStyle === 'color: var(--muted);' ? 'opacity: 0.7;' : ''}">${grandTotalDisp}</div>
       </div>
     `;
   }
@@ -1865,12 +1868,66 @@ function showPlayerScoreEditor(pid, cid) {
   container.id = 'player-score-editor-overlay';
   container.innerHTML = html;
   document.body.appendChild(container);
+
+  // Focus on the first cell (Trou 1 of Tour 1)
+  setTimeout(() => {
+    const firstInput = document.getElementById('pse-r1-h0');
+    if (firstInput) { firstInput.focus(); firstInput.select(); }
+  }, 100);
 }
 
 function closePlayerScoreEditor() {
   const el = document.getElementById('player-score-editor-overlay');
   if (el) el.remove();
   state.scoreEditor = null;
+}
+
+// Pre-fill all empty cells with par value (saves to Firebase + refreshes display)
+async function prefillScoresWithPars() {
+  if (!state.scoreEditor) return;
+  const { pid, cid } = state.scoreEditor;
+  const c = (state.club.competitions || {})[cid];
+  if (!c) return;
+  const nRounds = c.holes === 36 ? 2 : 1;
+
+  const currentScores = (c.scores || {})[pid] || {};
+  const updates = {};
+  let count = 0;
+  for (let r = 1; r <= nRounds; r++) {
+    const rScores = currentScores['r' + r] || {};
+    for (let i = 0; i < 18; i++) {
+      if (rScores[i] == null) {
+        const par = getHolePar(i, r);
+        updates['scores/' + pid + '/r' + r + '/' + i] = par;
+        count++;
+      }
+    }
+  }
+  if (count === 0) {
+    alert('Toutes les cases ont déjà un score.');
+    return;
+  }
+  if (!confirm(`Pré-remplir ${count} case${count>1?'s':''} vide${count>1?'s':''} avec le par ?`)) {
+    return;
+  }
+  try {
+    await dbRef.child('clubs/' + state.clubCode + '/competitions/' + cid).update(updates);
+    // Update local state to reflect changes
+    if (!c.scores) c.scores = {};
+    if (!c.scores[pid]) c.scores[pid] = {};
+    for (let r = 1; r <= nRounds; r++) {
+      if (!c.scores[pid]['r' + r]) c.scores[pid]['r' + r] = {};
+      for (let i = 0; i < 18; i++) {
+        if (c.scores[pid]['r' + r][i] == null) {
+          c.scores[pid]['r' + r][i] = getHolePar(i, r);
+        }
+      }
+    }
+    // Re-render the editor
+    showPlayerScoreEditor(pid, cid);
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 // Score cell color helper (background of input)
@@ -1891,28 +1948,34 @@ async function saveScoreCell(round, holeIdx, value) {
   const { pid, cid } = state.scoreEditor;
   const path = 'clubs/' + state.clubCode + '/competitions/' + cid + '/scores/' + pid + '/r' + round + '/' + holeIdx;
   const v = (value || '').trim();
+  const par = getHolePar(holeIdx, round);
   try {
+    let numToSave;
     if (v === '' || v === '0') {
-      await dbRef.child(path).remove();
+      // Empty or 0 → set to par
+      numToSave = par;
     } else {
       const num = parseInt(v, 10);
       if (isNaN(num) || num < 1 || num > 20) {
-        // Invalid value: revert
-        return;
+        // Invalid value: revert to par
+        numToSave = par;
+      } else {
+        numToSave = num;
       }
-      await dbRef.child(path).set(num);
     }
-    // Update local state.club to reflect the change (since Firebase listener may not be running here)
+    await dbRef.child(path).set(numToSave);
+
+    // Update the input value to reflect the saved value
+    const input = document.getElementById(`pse-r${round}-h${holeIdx}`);
+    if (input) input.value = numToSave;
+
+    // Update local state.club to reflect the change
     if (state.club && state.club.competitions && state.club.competitions[cid]) {
       const comp = state.club.competitions[cid];
       if (!comp.scores) comp.scores = {};
       if (!comp.scores[pid]) comp.scores[pid] = {};
       if (!comp.scores[pid]['r' + round]) comp.scores[pid]['r' + round] = {};
-      if (v === '' || v === '0') {
-        delete comp.scores[pid]['r' + round][holeIdx];
-      } else {
-        comp.scores[pid]['r' + round][holeIdx] = parseInt(v, 10);
-      }
+      comp.scores[pid]['r' + round][holeIdx] = numToSave;
     }
     // Update cell background and totals
     updateScoreCellUI(round, holeIdx);
@@ -1935,27 +1998,61 @@ function updateScoreCellUI(round, holeIdx) {
   }
 }
 
-// Recompute the totals at the bottom of each round table
+// Recompute the totals at the bottom of each round table — surgical update, no re-render
 function updateScoreTotals(round) {
   if (!state.scoreEditor) return;
-  // Easiest: re-render the entire editor (preserve scroll position)
-  const scrollTop = window.scrollY;
-  const focusEl = document.activeElement;
-  const focusId = focusEl ? focusEl.id : null;
-  showPlayerScoreEditor(state.scoreEditor.pid, state.scoreEditor.cid);
-  window.scrollTo(0, scrollTop);
-  if (focusId) {
-    const newEl = document.getElementById(focusId);
-    if (newEl) newEl.focus();
+  const { pid, cid } = state.scoreEditor;
+  const c = (state.club.competitions || {})[cid];
+  if (!c) return;
+
+  const nRounds = c.holes === 36 ? 2 : 1;
+  // Update each round's total line
+  let grandStrokes = 0, grandPar = 0, grandPlayed = 0;
+  for (let r = 1; r <= nRounds; r++) {
+    const rScores = ((c.scores || {})[pid] || {})['r' + r] || {};
+    let strokes = 0, par = 0, played = 0;
+    for (let i = 0; i < 18; i++) {
+      if (rScores[i] != null) {
+        strokes += rScores[i];
+        par += getHolePar(i, r);
+        played++;
+      }
+    }
+    grandStrokes += strokes;
+    grandPar += par;
+    grandPlayed += played;
+    const totalEl = document.getElementById('pse-total-r' + r);
+    if (totalEl) {
+      const diff = strokes - par;
+      const totalDisp = played > 0
+        ? `${strokes} strokes · ${formatDiff(diff, true)} · ${played}/18 trous`
+        : '0 trou joué';
+      totalEl.innerHTML = `Total Tour ${r} : ${totalDisp}`;
+      totalEl.style.color = played > 0 ? diffColor(diff, true) : 'var(--muted)';
+    }
+  }
+  // Update grand total
+  if (nRounds === 2) {
+    const grandEl = document.getElementById('pse-grand-total');
+    if (grandEl) {
+      const totalHoles = nRounds * 18;
+      const grandDiff = grandStrokes - grandPar;
+      const disp = grandPlayed > 0
+        ? `${grandStrokes} strokes · ${formatDiff(grandDiff, true)} · ${grandPlayed}/${totalHoles} trous`
+        : 'Aucun score saisi';
+      grandEl.innerHTML = disp;
+      grandEl.style.opacity = grandPlayed > 0 ? '1' : '0.7';
+    }
   }
 }
 
 // Keyboard navigation: Tab/Enter to save & next, Shift+Tab to prev
 function onScoreCellKey(e, round, holeIdx) {
-  // Tab: save and move to next cell
-  if (e.key === 'Tab' || e.key === 'Enter') {
+  // Enter explicitly moves to next cell (default for Tab is handled by browser, but we save on blur)
+  if (e.key === 'Enter') {
     e.preventDefault();
     const input = e.target;
+    // Save first
     saveScoreCell(round, holeIdx, input.value);
     // Find next cell
     let nextRound = round;
@@ -1969,6 +2066,8 @@ function onScoreCellKey(e, round, holeIdx) {
       if (next) { next.focus(); next.select(); }
     }, 50);
   }
+  // For Tab, let the browser handle navigation naturally (don't preventDefault)
+  // The onblur handler will save the value automatically
 }
 
 function editDbPlayer(pid) {
@@ -5840,7 +5939,7 @@ const __exports = [
   'setDbGenderFilter',
   'openClearScoresModal', 'updateClearScoresRoundOptions', 'setClearScoresMode', 'confirmClearScores',
   'openPlayerScoreEditor', 'showPlayerScoreEditor', 'closePlayerScoreEditor',
-  'saveScoreCell', 'onScoreCellKey',
+  'saveScoreCell', 'onScoreCellKey', 'prefillScoresWithPars',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
   'importPlayers', 'importAlbatros', 'parseImportPaste', 'doImportPlayers',
