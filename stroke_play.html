@@ -39,6 +39,29 @@ html, body {
 }
 body { min-height: 100vh; }
 
+/* Global copyright footer */
+.app-footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--muted);
+  background: rgba(248, 244, 233, 0.95); /* matches --cream with transparency */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border-top: 1px solid var(--border);
+  letter-spacing: 0.02em;
+  pointer-events: none; /* don't block clicks */
+}
+/* Reserve space at bottom of all screens so footer doesn't hide content */
+.screen .content {
+  padding-bottom: 40px;
+}
+
 h1, h2, h3 { font-family: 'Fraunces', serif; font-weight: 600; margin: 0; }
 h1 { font-size: 26px; }
 h2 { font-size: 20px; }
@@ -517,27 +540,75 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   overflow: hidden; box-shadow: var(--shadow);
 }
 .leader-row {
-  display: grid; grid-template-columns: 36px 1fr auto auto;
-  align-items: center; gap: 10px;
-  padding: 12px 14px; border-bottom: 1px solid var(--border);
+  display: grid;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
 }
 .leader-row:last-child { border-bottom: none; }
 .leader-row.leader-header {
   background: var(--fairway); color: var(--cream);
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+  padding: 8px 10px;
+  font-weight: 600;
 }
+/* Top 3 highlight */
+.leader-row.rank-1 { background: linear-gradient(90deg, #FFF4D6 0%, var(--paper) 50%); }
+.leader-row.rank-2 { background: linear-gradient(90deg, #F1F3F5 0%, var(--paper) 50%); }
+.leader-row.rank-3 { background: linear-gradient(90deg, #FBE5D4 0%, var(--paper) 50%); }
 .leader-pos {
-  font-family: 'Fraunces', serif; font-weight: 600;
-  font-size: 16px; color: var(--fairway); text-align: center;
+  font-family: 'Fraunces', serif; font-weight: 700;
+  font-size: 18px; color: var(--fairway); text-align: center;
 }
-.leader-name { font-weight: 500; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.leader-name-meta { font-size: 12px; color: var(--muted); }
-.leader-score-net, .leader-score-thru {
-  font-family: 'Fraunces', serif; font-weight: 600;
-  font-size: 16px; color: var(--fairway);
-  min-width: 50px; text-align: right;
+.leader-row.rank-1 .leader-pos { color: #B27200; }
+.leader-row.rank-2 .leader-pos { color: #5F6B7A; }
+.leader-row.rank-3 .leader-pos { color: #9A5722; }
+
+.leader-name-block {
+  min-width: 0;
+  display: flex; flex-direction: column;
+  line-height: 1.15;
 }
-.leader-score-thru { font-size: 12px; color: var(--muted); min-width: 36px; }
+.leader-name-last {
+  font-family: 'Fraunces', serif;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.leader-name-first {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.leader-cell {
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+  text-align: center;
+  font-size: 14px;
+}
+.leader-cell-total {
+  font-size: 16px;
+  font-weight: 700;
+}
+.leader-cell-thru {
+  font-size: 12px;
+  color: var(--muted);
+}
+.leader-cell-hcp {
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+.leader-cell-muted { color: var(--muted); }
 
 /* ─── FC MULTI-FLIGHT VIEW ────────────────────────── */
 .fcm-flight {
@@ -904,6 +975,11 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 
 <!-- Modal container -->
 <div id="modal-container"></div>
+
+<!-- Global copyright footer -->
+<footer class="app-footer">
+  © 2026 Francis Berlier · Stroke Play · Tous droits réservés · Usage réservé au RWGC
+</footer>
 
 <!-- Firebase + XLSX -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -5973,49 +6049,75 @@ function renderLeaderboardPage(players, comp) {
   const isNet = comp.scoring === 'net';
   const is36 = comp.holes === 36;
 
+  // Split name into "LASTNAME" (uppercase) + "Firstname" (Title case)
+  function splitName(full) {
+    if (!full) return { last: '?', first: '' };
+    // Heuristic: words in ALL CAPS = last name, words in MixedCase = first name
+    // If nothing is uppercase, take last word as last name
+    const parts = full.split(/\s+/).filter(p => p.length > 0);
+    const upperParts = parts.filter(p => p === p.toUpperCase() && /[A-ZÀ-Ý]/.test(p));
+    const lowerParts = parts.filter(p => p !== p.toUpperCase());
+    if (upperParts.length > 0 && lowerParts.length > 0) {
+      return { last: upperParts.join(' '), first: lowerParts.join(' ') };
+    }
+    // Fallback: take last word as last name
+    if (parts.length === 1) return { last: parts[0].toUpperCase(), first: '' };
+    return { last: parts[parts.length - 1].toUpperCase(), first: parts.slice(0, -1).join(' ') };
+  }
+
   function roundCell(round) {
-    if (!round || round.holesPlayed === 0) return '<span style="color: var(--muted);">—</span>';
+    if (!round || round.holesPlayed === 0) return '<span class="leader-cell-muted">—</span>';
     const diff = round.diffVsPar;
     const color = diffColor(diff, true);
-    return `<span style="color: ${color}; font-weight: 600;">${formatDiff(diff, true)}</span>`;
+    return `<span style="color: ${color};">${formatDiff(diff, true)}</span>`;
   }
   function totalCell(d) {
-    if (d.totalHolesPlayed === 0) return '<span style="color: var(--muted);">—</span>';
+    if (d.totalHolesPlayed === 0) return '<span class="leader-cell-muted">—</span>';
     const diff = isNet ? d.netDiffVsPar : d.totalDiffVsPar;
     const color = diffColor(diff, true);
-    return `<span style="color: ${color}; font-weight: 700; font-size: 16px;">${formatDiff(diff, true)}</span>`;
+    return `<span style="color: ${color};">${formatDiff(diff, true)}</span>`;
   }
   function thruCell(d) {
-    if (d.totalHolesPlayed === 0) return '<span style="color: var(--muted);">—</span>';
-    if (d.allFinished) return '<span style="color: var(--fairway); font-weight: 600;">F</span>';
+    if (d.totalHolesPlayed === 0) return '<span class="leader-cell-muted">—</span>';
+    if (d.allFinished) return '<span style="color: var(--fairway); font-weight: 700;">F</span>';
     return `<span>${d.totalHolesPlayed}/${d.totalHoles}</span>`;
   }
 
+  // Grid template: # | Name | HCP | [T1 | T2 |] Total | Thru
+  // Sized to fit narrow mobile screens (380-400px) without truncation
   const colTemplate = is36
-    ? 'grid-template-columns: 30px 1fr 40px 44px 44px 56px 50px;'
-    : 'grid-template-columns: 32px 1fr 50px 60px 56px;';
+    ? 'grid-template-columns: 28px minmax(0,1fr) 38px 36px 36px 44px 40px;'
+    : 'grid-template-columns: 32px minmax(0,1fr) 42px 50px 44px;';
 
   let html = `<div class="leader-table">
     <div class="leader-row leader-header" style="${colTemplate}">
-      <div>#</div>
+      <div style="text-align:center;">#</div>
       <div>Joueur</div>
-      <div style="text-align:right;">Hcp</div>
-      ${is36 ? '<div style="text-align:right;">T1</div><div style="text-align:right;">T2</div>' : ''}
-      <div style="text-align:right;">${isNet ? 'NET' : 'Total'}</div>
-      <div style="text-align:right;">Thru</div>
+      <div style="text-align:center;">HCP</div>
+      ${is36 ? '<div style="text-align:center;">T1</div><div style="text-align:center;">T2</div>' : ''}
+      <div style="text-align:center;">${isNet ? 'NET' : 'TOT'}</div>
+      <div style="text-align:center;">THRU</div>
     </div>`;
   players.forEach(d => {
     const pos = d._rank || '—';
-    html += `<div class="leader-row" style="${colTemplate}">
+    const { last, first } = splitName(d.name);
+    // Apply highlight class for top 3
+    const rankClass = (pos === 1 || pos === '1') ? ' rank-1'
+                    : (pos === 2 || pos === '2') ? ' rank-2'
+                    : (pos === 3 || pos === '3') ? ' rank-3' : '';
+    html += `<div class="leader-row${rankClass}" style="${colTemplate}">
       <div class="leader-pos">${pos}</div>
-      <div><div class="leader-name">${escapeHtml(d.name)}</div></div>
-      <div style="text-align:right; font-size: 13px; color: var(--muted);">${d.hcp != null ? d.hcp : '—'}</div>
+      <div class="leader-name-block">
+        <div class="leader-name-last">${escapeHtml(last)}</div>
+        ${first ? `<div class="leader-name-first">${escapeHtml(first)}</div>` : ''}
+      </div>
+      <div class="leader-cell-hcp">${d.hcp != null ? d.hcp : '—'}</div>
       ${is36 ? `
-        <div style="text-align:right;">${roundCell(d.r1)}</div>
-        <div style="text-align:right;">${roundCell(d.r2)}</div>
+        <div class="leader-cell">${roundCell(d.r1)}</div>
+        <div class="leader-cell">${roundCell(d.r2)}</div>
       ` : ''}
-      <div style="text-align:right;">${totalCell(d)}</div>
-      <div style="text-align:right; font-size: 12px; color: var(--muted);">${thruCell(d)}</div>
+      <div class="leader-cell leader-cell-total">${totalCell(d)}</div>
+      <div class="leader-cell leader-cell-thru">${thruCell(d)}</div>
     </div>`;
   });
   html += '</div>';
@@ -6377,12 +6479,10 @@ function renderSpectatorPage() {
   });
 
   const html = `
-    <div style="background: var(--fairway); color: var(--paper); padding: 14px 18px; border-radius: 12px; margin-bottom: 14px; display: flex; align-items: center; gap: 12px;">
-      <div style="flex: 1;">
-        <div style="font-size: 13px; opacity: 0.85; letter-spacing: 0.05em; text-transform: uppercase;">${genderLabel}</div>
-        <div style="font-size: 18px; font-weight: 700; margin-top: 2px;">Page ${page.pageIndex + 1} / ${page.totalPages} · Rangs ${startRank}–${endRank}</div>
-        <div style="font-size: 12px; opacity: 0.85; margin-top: 2px;">${cycle.currentIndex + 1} / ${cycle.pages.length} affichages</div>
-      </div>
+    <div style="background: var(--fairway); color: var(--paper); padding: 10px 14px; border-radius: 10px; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px;">
+      <div style="font-size: 13px; font-weight: 600; letter-spacing: 0.03em; text-transform: uppercase;">${genderLabel}</div>
+      <div style="font-size: 13px; font-weight: 600;">Page ${page.pageIndex + 1}/${page.totalPages} · Rangs ${startRank}–${endRank}</div>
+      <div style="font-size: 11px; opacity: 0.85;">${cycle.currentIndex + 1}/${cycle.pages.length}</div>
     </div>
     ${renderLeaderboardPage(playersWithRanks, comp)}
     <div style="margin-top: 14px; display: flex; gap: 6px; align-items: center;">
