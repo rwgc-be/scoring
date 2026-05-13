@@ -2084,36 +2084,49 @@ async function saveScoreCell(round, holeIdx, value) {
   const { pid, cid } = state.scoreEditor;
   const path = 'clubs/' + state.clubCode + '/competitions/' + cid + '/scores/' + pid + '/r' + round + '/' + holeIdx;
   const v = (value || '').trim();
-  const par = getHolePar(holeIdx, round);
+  const input = document.getElementById(`pse-r${round}-h${holeIdx}`);
+  // Find previous stored value (used for revert)
+  const prevStored = ((((state.club || {}).competitions || {})[cid] || {}).scores || {})[pid];
+  const prevVal = (prevStored && prevStored['r' + round] && prevStored['r' + round][holeIdx] != null)
+    ? prevStored['r' + round][holeIdx]
+    : null;
+
   try {
-    let numToSave;
-    if (v === '' || v === '0') {
-      // Empty or 0 → set to par
-      numToSave = par;
-    } else {
-      const num = parseInt(v, 10);
-      if (isNaN(num) || num < 1 || num > 20) {
-        // Invalid value: revert to par
-        numToSave = par;
-      } else {
-        numToSave = num;
+    if (v === '') {
+      // Empty → erase score in DB
+      await dbRef.child(path).remove();
+      // Reflect in input (already empty) and local state
+      if (state.club && state.club.competitions && state.club.competitions[cid]) {
+        const comp = state.club.competitions[cid];
+        if (comp.scores && comp.scores[pid] && comp.scores[pid]['r' + round]) {
+          delete comp.scores[pid]['r' + round][holeIdx];
+        }
       }
+      if (input) input.value = '';
+      updateScoreCellUI(round, holeIdx);
+      updateScoreTotals(round);
+      return;
     }
-    await dbRef.child(path).set(numToSave);
 
-    // Update the input value to reflect the saved value
-    const input = document.getElementById(`pse-r${round}-h${holeIdx}`);
-    if (input) input.value = numToSave;
+    // Not empty: parse and validate
+    const num = parseInt(v, 10);
+    if (isNaN(num) || num < 1 || num > 20) {
+      // Invalid value: revert to previous (could be empty)
+      if (input) input.value = (prevVal != null) ? String(prevVal) : '';
+      updateScoreCellUI(round, holeIdx);
+      return;
+    }
 
-    // Update local state.club to reflect the change
+    // Valid value → save
+    await dbRef.child(path).set(num);
+    if (input) input.value = String(num);
     if (state.club && state.club.competitions && state.club.competitions[cid]) {
       const comp = state.club.competitions[cid];
       if (!comp.scores) comp.scores = {};
       if (!comp.scores[pid]) comp.scores[pid] = {};
       if (!comp.scores[pid]['r' + round]) comp.scores[pid]['r' + round] = {};
-      comp.scores[pid]['r' + round][holeIdx] = numToSave;
+      comp.scores[pid]['r' + round][holeIdx] = num;
     }
-    // Update cell background and totals
     updateScoreCellUI(round, holeIdx);
     updateScoreTotals(round);
   } catch (err) {
