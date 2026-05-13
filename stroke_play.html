@@ -5149,11 +5149,13 @@ function enterFCMulti() {
     state.comp = (club.competitions || {})[state.compId];
     if (!state.comp) return logout();
     // On first load, save Par as default score on hole 1 for all flights
+    // AND position each flight on its first non-validated hole
     if (!state.fcmInitialized) {
       state.fcmInitialized = true;
       const flights = state.comp.flights || {};
       Object.keys(flights).forEach(fid => {
-        saveDefaultParForFlight(fid, 1);
+        positionFlightOnFirstUnvalidatedHole(fid);
+        saveDefaultParForFlight(fid, fcmGetFlightHole(fid));
       });
     }
     renderFCMulti();
@@ -5169,12 +5171,27 @@ function adminEnterFCMulti() {
   state.scoreReturnTo = 'screen-comp';
   state.isAdminScoring = true;
   show('screen-fc-multi');
-  // Save Par on hole 1 for all flights
+  // Position each flight on its first non-validated hole + save Par there
   const flights = state.comp.flights || {};
   Object.keys(flights).forEach(fid => {
-    saveDefaultParForFlight(fid, 1);
+    positionFlightOnFirstUnvalidatedHole(fid);
+    saveDefaultParForFlight(fid, fcmGetFlightHole(fid));
   });
   renderFCMulti();
+}
+
+// Position a flight on its first non-validated hole (1-18).
+// If all 18 are validated, position on hole 18.
+function positionFlightOnFirstUnvalidatedHole(fid) {
+  const round = state.currentRound;
+  let target = 18; // default if all validated
+  for (let h = 0; h < 18; h++) {
+    if (!isHoleValidated(fid, round, h)) {
+      target = h + 1; // 1-based hole number
+      break;
+    }
+  }
+  state.fcmFlightHoles[fid] = target;
 }
 
 function fcMultiBack() {
