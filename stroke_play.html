@@ -1791,6 +1791,18 @@ function saveNewPlayer() {
 
 /* ─── PLAYER SCORE EDITOR (table view) ──────────────── */
 
+// Open the score editor for a player, forced for the current competition.
+// Called from within a competition's "Joueurs" tab — skips the "which comp?" picker.
+function editPlayerScoresCurrentComp(pid) {
+  if (!state.compId) {
+    // Fallback: no current comp, use the normal flow
+    return openPlayerScoreEditor(pid);
+  }
+  const p = (state.club.playersDB || {})[pid];
+  if (!p) return;
+  showPlayerScoreEditor(pid, state.compId);
+}
+
 // Open the score editor for a player.
 // If multiple comps, ask first; if only one, go straight to the table.
 function openPlayerScoreEditor(pid) {
@@ -3153,6 +3165,7 @@ function renderCompPlayers() {
           <div class="player-row-name">${escapeHtml(getFullName(p))}</div>
           ${p.hcp != null ? `<div class="player-row-meta">Hcp ${p.hcp}</div>` : ''}
         </div>
+        <button class="icon-btn" onclick="editPlayerScoresCurrentComp('${pid}')" title="Saisir scores">📝</button>
         <button class="icon-btn" onclick="removeCompPlayer('${pid}')" title="Retirer">×</button>
       </div>`;
     }).join('');
@@ -6608,6 +6621,7 @@ const __exports = [
   'setDbGenderFilter',
   'openClearScoresModal', 'updateClearScoresRoundOptions', 'setClearScoresMode', 'confirmClearScores',
   'openPlayerScoreEditor', 'showPlayerScoreEditor', 'closePlayerScoreEditor',
+  'editPlayerScoresCurrentComp',
   'saveScoreCell', 'onScoreCellKey', 'prefillScoresWithPars',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
