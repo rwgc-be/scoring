@@ -2457,13 +2457,53 @@ function _scAttachInputHandlers() {
     inp.addEventListener('keydown', e => {
       if (e.key === 'Tab' || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete'
           || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
-          || e.key === 'ArrowUp' || e.key === 'ArrowDown') return;
+          || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        // For Tab and Enter, save first then move to next manually
+        // (since the blur event re-renders the table, the natural tab focus is lost)
+        if (e.key === 'Tab' || e.key === 'Enter') {
+          e.preventDefault();
+          // Remember which cell to focus next (forward Tab or Shift+Tab for previous)
+          const direction = (e.key === 'Tab' && e.shiftKey) ? -1 : 1;
+          state._scNextFocus = _scComputeNextFocusKey(inp, direction);
+          // Trigger save which will re-render
+          _scSaveCell(inp);
+        }
+        return;
+      }
       if (!/^[0-9]$/.test(e.key)) e.preventDefault();
-      if (e.key === 'Enter') { e.preventDefault(); _scMoveToNext(inp); }
     });
-    inp.addEventListener('blur', () => _scSaveCell(inp));
+    // Save on blur ONLY if focus is moving outside the scorecard (not to another cell)
+    inp.addEventListener('blur', e => {
+      // If the new active element is another scorecard cell, the keydown handler already handled it
+      const newFocus = e.relatedTarget;
+      if (newFocus && newFocus.classList && newFocus.classList.contains('sc-score-input')) return;
+      _scSaveCell(inp);
+    });
     inp.addEventListener('change', () => _scSaveCell(inp));
   });
+
+  // After render, if we have a pending focus, apply it
+  if (state._scNextFocus) {
+    const target = document.querySelector(`.sc-score-input[data-round="${state._scNextFocus.round}"][data-hole="${state._scNextFocus.hole}"]`);
+    if (target) {
+      target.focus();
+      target.select();
+    }
+    state._scNextFocus = null;
+  }
+}
+
+// Compute the key of the next cell to focus (for Tab navigation)
+function _scComputeNextFocusKey(inp, direction) {
+  const all = Array.from(document.querySelectorAll('.sc-score-input[data-hole]'));
+  const idx = all.indexOf(inp);
+  const nextIdx = idx + direction;
+  if (nextIdx < 0 || nextIdx >= all.length) return null;
+  const next = all[nextIdx];
+  return {
+    round: parseInt(next.dataset.round, 10),
+    hole: parseInt(next.dataset.hole, 10)
+  };
 }
 
 function _scMoveToNext(inp) {
