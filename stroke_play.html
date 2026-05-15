@@ -39,6 +39,143 @@ html, body {
 }
 body { min-height: 100vh; }
 
+/* Scorecard PGA style */
+.sc-section {
+  background: var(--paper);
+  border-radius: var(--radius);
+  margin-bottom: 18px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+.sc-section-title {
+  background: var(--fairway);
+  color: var(--cream);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.sc-section-title h3 {
+  font-family: 'Fraunces', serif;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cream);
+  margin: 0;
+}
+.sc-section-title .sc-section-actions {
+  display: flex;
+  gap: 6px;
+}
+.sc-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 6px;
+}
+.sc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 480px;
+}
+.sc-table th, .sc-table td {
+  border: 1px solid var(--border);
+  padding: 6px 4px;
+  text-align: center;
+  min-width: 30px;
+}
+.sc-table th {
+  font-weight: 700;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.sc-table th.sc-label {
+  background: var(--fairway);
+  color: var(--cream);
+  text-align: left;
+  padding-left: 8px;
+  font-family: 'Fraunces', serif;
+  min-width: 56px;
+  width: 56px;
+}
+.sc-table th.sc-hole {
+  background: #D6E5F2;
+  color: #1A1A1A;
+  font-family: 'Fraunces', serif;
+  font-weight: 600;
+}
+.sc-table td.sc-par {
+  background: #D6E5F2;
+  color: #1A1A1A;
+  font-weight: 600;
+}
+.sc-table td.sc-sum {
+  background: #EEF3F8;
+  font-weight: 700;
+  font-family: 'Fraunces', serif;
+}
+.sc-table td.sc-total {
+  background: var(--fairway);
+  color: var(--cream);
+  font-weight: 700;
+  font-family: 'Fraunces', serif;
+}
+.sc-score-input {
+  width: 34px;
+  height: 28px;
+  border: 1px solid transparent;
+  background: transparent;
+  text-align: center;
+  font-size: 14px;
+  font-weight: 600;
+  font-family: 'Fraunces', serif;
+  border-radius: 4px;
+  padding: 0;
+  color: var(--ink);
+}
+.sc-score-input:focus {
+  outline: none;
+  border-color: var(--fairway);
+  background: #FFF;
+}
+.sc-score-input:read-only { cursor: default; }
+.sc-score-input.sc-eagle, .sc-score-input.sc-birdie {
+  color: #10B981; /* green */
+}
+.sc-score-input.sc-bogey {
+  color: #F97316; /* orange */
+}
+.sc-score-input.sc-double, .sc-score-input.sc-triple, .sc-score-input.sc-worst {
+  color: #DC2626; /* red */
+}
+.sc-grand-total {
+  background: var(--paper);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+  font-family: 'Fraunces', serif;
+  box-shadow: var(--shadow);
+  margin-top: 10px;
+}
+.sc-grand-total .sc-gt-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+.sc-grand-total .sc-gt-value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--fairway);
+}
+.sc-grand-total .sc-gt-diff {
+  font-size: 16px;
+  font-weight: 600;
+  margin-left: 8px;
+}
+
 /* Global copyright footer */
 .app-footer {
   position: fixed;
@@ -565,6 +702,17 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 .leader-row.rank-2 .leader-pos { color: #5F6B7A; }
 .leader-row.rank-3 .leader-pos { color: #9A5722; }
 
+.leader-row-clickable {
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.leader-row-clickable:hover {
+  background: var(--cream) !important;
+}
+.leader-row-clickable:active {
+  background: #E8E0CC !important;
+}
+
 .leader-name-block {
   min-width: 0;
   display: flex; flex-direction: column;
@@ -656,8 +804,8 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   letter-spacing: 0.05em; text-transform: uppercase;
 }
 .fcm-row {
-  display: grid; grid-template-columns: 1fr auto;
-  align-items: center; gap: 12px;
+  display: grid; grid-template-columns: 1fr auto auto;
+  align-items: center; gap: 10px;
   padding: 12px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -676,6 +824,41 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
 }
 .fcm-row-name-meta {
   font-size: 12px; color: var(--muted); margin-top: 2px;
+}
+/* Per-player validation checkbox */
+.fcm-player-validate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0 4px;
+  min-width: 36px;
+  height: 100%;
+}
+.fcm-player-validate input[type="checkbox"] {
+  width: 22px; height: 22px;
+  cursor: pointer;
+  accent-color: var(--fairway);
+}
+.fcm-player-validate-label {
+  display: none; /* not used in the new minimal design */
+}
+/* Validation status bar (replaces global Validate button) */
+.fcm-validation-status {
+  text-align: center;
+  padding: 10px 14px;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: var(--cream);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid var(--border);
+}
+.fcm-validation-status.all-valid {
+  background: #E6F0EB;
+  color: var(--fairway);
+  border-color: var(--fairway);
 }
 .fcm-stepper {
   display: flex; align-items: center; gap: 10px;
@@ -931,6 +1114,14 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
     <button class="btn btn-secondary btn-sm" style="flex:1;" data-round="2" onclick="fcmSwitchRound(2)">Tour 2</button>
   </div>
 
+  <!-- Settings bar -->
+  <div style="background: var(--paper); border-bottom: 1px solid var(--border); padding: 6px 12px; display: flex; align-items: center; justify-content: flex-end; gap: 8px; font-size: 12px;">
+    <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--muted);" title="Avancer automatiquement quand tous les joueurs sont validés">
+      <input type="checkbox" id="fcm-auto-advance-toggle" onchange="toggleFcmAutoAdvance()" style="cursor: pointer;">
+      <span>⚡ Auto-avance après validation</span>
+    </label>
+  </div>
+
   <div class="content">
     <div id="fcm-flights"></div>
 
@@ -956,6 +1147,20 @@ textarea { font-family: 'Courier New', monospace; font-size: 13px; resize: verti
   </header>
   <div class="content">
     <div id="lb-pub-content"></div>
+  </div>
+</section>
+
+<!-- Scorecard screen (single player, PGA style) -->
+<section id="screen-scorecard" class="screen">
+  <header class="header">
+    <button class="header-btn" onclick="closeScorecard()">←</button>
+    <div class="header-title">
+      <h1 id="sc-player-name">—</h1>
+      <div class="header-subtitle" id="sc-meta">—</div>
+    </div>
+  </header>
+  <div class="content">
+    <div id="sc-content"></div>
   </div>
 </section>
 
@@ -1393,6 +1598,7 @@ function renderActiveAdminScreen() {
   if ($('screen-score').classList.contains('active') && state.flight) renderScoreScreen();
   if ($('screen-fc-multi').classList.contains('active') && state.comp) renderFCMulti();
   if ($('screen-leaderboard-public').classList.contains('active') && state.comp) renderPublicLeaderboard();
+  if ($('screen-scorecard').classList.contains('active') && state.scorecard) renderScorecard();
 }
 
 function logout() {
@@ -1791,16 +1997,13 @@ function saveNewPlayer() {
 
 /* ─── PLAYER SCORE EDITOR (table view) ──────────────── */
 
-// Open the score editor for a player, forced for the current competition.
-// Called from within a competition's "Joueurs" tab — skips the "which comp?" picker.
+// Open the PGA-style scorecard for a player, forced for the current competition.
+// Called from the "Joueurs" tab and elsewhere within a comp.
 function editPlayerScoresCurrentComp(pid) {
-  if (!state.compId) {
-    // Fallback: no current comp, use the normal flow
-    return openPlayerScoreEditor(pid);
-  }
+  if (!state.compId) return;
   const p = (state.club.playersDB || {})[pid];
   if (!p) return;
-  showPlayerScoreEditor(pid, state.compId);
+  openScorecard(pid, { returnTo: 'screen-comp' });
 }
 
 // Open the score editor for a player.
@@ -2016,6 +2219,341 @@ function closePlayerScoreEditor() {
   const el = document.getElementById('player-score-editor-overlay');
   if (el) el.remove();
   state.scoreEditor = null;
+}
+
+// ============================================================
+// SCORECARD (PGA style, single player, full screen)
+// ============================================================
+
+// Open scorecard for a player; uses current comp (state.compId)
+function openScorecard(pid, opts) {
+  opts = opts || {};
+  if (!state.compId) {
+    alert("Aucune compétition active.");
+    return;
+  }
+  const p = (state.club.playersDB || {})[pid];
+  if (!p) return;
+  const c = (state.club.competitions || {})[state.compId];
+  if (!c) return;
+  state.scorecard = {
+    pid,
+    cid: state.compId,
+    readOnly: !!opts.readOnly,
+    returnTo: opts.returnTo || 'screen-comp'
+  };
+  state.scoreReturnTo = state.scoreReturnTo || null;
+  show('screen-scorecard');
+  renderScorecard();
+}
+
+function closeScorecard() {
+  const ret = (state.scorecard && state.scorecard.returnTo) || 'screen-comp';
+  state.scorecard = null;
+  show(ret);
+}
+
+// Open in read-only mode, returning to the public leaderboard
+function openScorecardReadOnly(pid) {
+  // If we're already on the public leaderboard, return there
+  // Otherwise use scorecard returnTo logic (admin path = screen-comp)
+  let returnTo = 'screen-leaderboard-public';
+  if ($('screen-comp').classList.contains('active')) returnTo = 'screen-comp';
+  openScorecard(pid, { readOnly: true, returnTo });
+}
+
+// Find the flight a player is in (for current comp)
+function _scFindFlightForPlayer(c, pid) {
+  const flights = c.flights || {};
+  for (const fid of Object.keys(flights)) {
+    const f = flights[fid];
+    if ((f.playerIds || []).includes(pid)) return { fid, flight: f };
+  }
+  return null;
+}
+
+function renderScorecard() {
+  const sc = state.scorecard;
+  if (!sc) return;
+  const c = (state.club.competitions || {})[sc.cid];
+  const p = (state.club.playersDB || {})[sc.pid];
+  if (!c || !p) return;
+  const flightInfo = _scFindFlightForPlayer(c, sc.pid);
+
+  // Header
+  $('sc-player-name').textContent = getFullName(p);
+  const flightLabel = flightInfo ? `${flightInfo.flight.name || 'Flight'} · ${flightInfo.flight.teeTime || '—'}` : 'Sans flight';
+  $('sc-meta').textContent = `${c.name} · Hcp ${p.hcp != null ? p.hcp : '—'} · ${flightLabel}`;
+
+  const is36 = c.holes === 36;
+
+  let html = '';
+  let allTotalScore = 0, allTotalPar = 0, allHolesPlayed = 0;
+
+  // Tour 1
+  const r1 = _scRenderRound(c, p, sc.pid, 1, sc.readOnly);
+  html += r1.html;
+  allTotalScore += r1.totalScore;
+  allTotalPar += r1.totalPar;
+  allHolesPlayed += r1.holesPlayed;
+
+  if (is36) {
+    const r2 = _scRenderRound(c, p, sc.pid, 2, sc.readOnly);
+    html += r2.html;
+    allTotalScore += r2.totalScore;
+    allTotalPar += r2.totalPar;
+    allHolesPlayed += r2.holesPlayed;
+  }
+
+  // Grand total
+  if (allHolesPlayed > 0) {
+    const diff = allTotalScore - allTotalPar;
+    const sign = diff > 0 ? '+' : '';
+    const color = diff > 0 ? '#DC2626' : (diff < 0 ? '#10B981' : 'var(--muted)');
+    const tourLabel = is36 ? 'Total général (Tour 1 + Tour 2)' : 'Total';
+    html += `<div class="sc-grand-total">
+      <div class="sc-gt-label">${tourLabel}</div>
+      <div>
+        <span class="sc-gt-value">${allTotalScore}</span>
+        <span class="sc-gt-diff" style="color: ${color};">${diff === 0 ? 'E' : sign + diff}</span>
+      </div>
+      <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">
+        ${allHolesPlayed} trou${allHolesPlayed>1?'s':''} joué${allHolesPlayed>1?'s':''} · Par ${allTotalPar}
+      </div>
+    </div>`;
+  }
+
+  $('sc-content').innerHTML = html;
+  // Wire up score input listeners
+  if (!sc.readOnly) _scAttachInputHandlers();
+}
+
+// Render one round (tour) as one section with aller + retour tables
+function _scRenderRound(c, p, pid, round, readOnly) {
+  const rKey = 'r' + round;
+  const playerScores = ((c.scores || {})[pid] || {})[rKey] || {};
+  const holesPars = [];
+  for (let h = 0; h < 18; h++) holesPars.push(getHolePar(h, round));
+
+  // Determine course name (if 36 = 2 courses, else 1)
+  let courseName = '';
+  if (c.courseIds && state.club.courses) {
+    const cid = c.courseIds[round - 1] || c.courseIds[0];
+    if (cid && state.club.courses[cid]) courseName = state.club.courses[cid].name || '';
+  }
+  const tourLabel = (c.holes === 36) ? `Tour ${round}${courseName ? ' — ' + courseName : ''}` : (courseName ? courseName : 'Carte de score');
+
+  // Determine display order (shotgun start at 10 → show 10-18 first if relevant)
+  // For the scorecard we always show aller (1-9) first then retour (10-18) — classic golf card
+  // BUT if the player's flight started at hole 10 in this round, we still display 1-9 then 10-18 (standard scorecard)
+  // because the carte is the printed version.
+
+  // Aller (holes 0-8)
+  const allerPars = holesPars.slice(0, 9);
+  const allerScores = [];
+  let allerTotalScore = 0, allerTotalPar = 0, allerCount = 0;
+  for (let h = 0; h < 9; h++) {
+    const s = playerScores[h];
+    allerScores.push(s);
+    allerTotalPar += allerPars[h];
+    if (s != null) { allerTotalScore += s; allerCount++; }
+  }
+  // Retour (holes 9-17)
+  const retourPars = holesPars.slice(9, 18);
+  const retourScores = [];
+  let retourTotalScore = 0, retourTotalPar = 0, retourCount = 0;
+  for (let h = 9; h < 18; h++) {
+    const s = playerScores[h];
+    retourScores.push(s);
+    retourTotalPar += retourPars[h - 9];
+    if (s != null) { retourTotalScore += s; retourCount++; }
+  }
+  const totalScore = allerTotalScore + retourTotalScore;
+  const totalPar = allerTotalPar + retourTotalPar;
+  const totalCount = allerCount + retourCount;
+
+  function scoreClassFor(s, par) {
+    if (s == null) return '';
+    if (s <= par - 2) return 'sc-eagle';
+    if (s === par - 1) return 'sc-birdie';
+    if (s === par + 1) return 'sc-bogey';
+    if (s === par + 2) return 'sc-double';
+    if (s >= par + 3) return 'sc-worst';
+    return '';
+  }
+
+  function scoreCell(s, par, holeIdx) {
+    const cls = scoreClassFor(s, par);
+    const val = s != null ? s : '';
+    if (readOnly) {
+      return `<td><span class="sc-score-input ${cls}" style="display:inline-block; line-height:28px;">${val}</span></td>`;
+    }
+    return `<td><input type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="2"
+      class="sc-score-input ${cls}"
+      id="sc-r${round}-h${holeIdx}"
+      data-round="${round}" data-hole="${holeIdx}" data-par="${par}"
+      value="${val}"></td>`;
+  }
+
+  // Build aller table
+  let allerTable = '<table class="sc-table"><thead><tr>';
+  allerTable += '<th class="sc-label">Trou</th>';
+  for (let i = 1; i <= 9; i++) allerTable += `<th class="sc-hole">${i}</th>`;
+  allerTable += '<th class="sc-hole">Aller</th></tr></thead><tbody>';
+  // Par row
+  allerTable += '<tr><th class="sc-label">Par</th>';
+  allerPars.forEach(par => { allerTable += `<td class="sc-par">${par}</td>`; });
+  allerTable += `<td class="sc-sum">${allerTotalPar}</td></tr>`;
+  // Score row
+  allerTable += '<tr><th class="sc-label">Score</th>';
+  for (let i = 0; i < 9; i++) allerTable += scoreCell(allerScores[i], allerPars[i], i);
+  const allerSumDiff = allerCount > 0 ? (allerTotalScore - allerPars.slice(0, allerCount).reduce((a,b)=>a+b,0)) : 0;
+  allerTable += `<td class="sc-sum">${allerCount > 0 ? allerTotalScore : '—'}</td></tr>`;
+  allerTable += '</tbody></table>';
+
+  // Build retour table
+  let retourTable = '<table class="sc-table"><thead><tr>';
+  retourTable += '<th class="sc-label">Trou</th>';
+  for (let i = 10; i <= 18; i++) retourTable += `<th class="sc-hole">${i}</th>`;
+  retourTable += '<th class="sc-hole">Retour</th><th class="sc-hole">Total T' + round + '</th></tr></thead><tbody>';
+  // Par row
+  retourTable += '<tr><th class="sc-label">Par</th>';
+  retourPars.forEach(par => { retourTable += `<td class="sc-par">${par}</td>`; });
+  retourTable += `<td class="sc-sum">${retourTotalPar}</td>`;
+  retourTable += `<td class="sc-total">${totalPar}</td></tr>`;
+  // Score row
+  retourTable += '<tr><th class="sc-label">Score</th>';
+  for (let i = 9; i < 18; i++) retourTable += scoreCell(retourScores[i - 9], retourPars[i - 9], i);
+  retourTable += `<td class="sc-sum">${retourCount > 0 ? retourTotalScore : '—'}</td>`;
+  if (totalCount > 0) {
+    const diff = totalScore - totalPar;
+    const sign = diff > 0 ? '+' : '';
+    retourTable += `<td class="sc-total">${totalScore} <span style="font-size:11px; opacity:0.85;">${diff === 0 ? 'E' : sign + diff}</span></td>`;
+  } else {
+    retourTable += `<td class="sc-total">—</td>`;
+  }
+  retourTable += '</tbody></table>';
+
+  // Prefill button (admin only)
+  const prefillBtn = readOnly ? '' :
+    `<button class="btn btn-paper btn-sm" onclick="prefillScorecard(${round})" title="Pré-remplir cases vides avec le par">✨ Pré-remplir</button>`;
+
+  let html = `<div class="sc-section">
+    <div class="sc-section-title">
+      <h3>${escapeHtml(tourLabel)} · PAR ${totalPar}</h3>
+      <div class="sc-section-actions">${prefillBtn}</div>
+    </div>
+    <div class="sc-table-wrap">${allerTable}</div>
+    <div class="sc-table-wrap">${retourTable}</div>
+  </div>`;
+
+  return { html, totalScore, totalPar, holesPlayed: totalCount };
+}
+
+function _scAttachInputHandlers() {
+  const inputs = document.querySelectorAll('.sc-score-input[data-hole]');
+  inputs.forEach(inp => {
+    // Block non-digit keys (allow special keys)
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Tab' || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete'
+          || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
+          || e.key === 'ArrowUp' || e.key === 'ArrowDown') return;
+      if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+      if (e.key === 'Enter') { e.preventDefault(); _scMoveToNext(inp); }
+    });
+    inp.addEventListener('blur', () => _scSaveCell(inp));
+    inp.addEventListener('change', () => _scSaveCell(inp));
+  });
+}
+
+function _scMoveToNext(inp) {
+  const all = Array.from(document.querySelectorAll('.sc-score-input[data-hole]'));
+  const idx = all.indexOf(inp);
+  if (idx >= 0 && idx + 1 < all.length) all[idx + 1].focus();
+}
+
+async function _scSaveCell(inp) {
+  if (!state.scorecard) return;
+  const { pid, cid } = state.scorecard;
+  const round = parseInt(inp.dataset.round, 10);
+  const holeIdx = parseInt(inp.dataset.hole, 10);
+  const par = parseInt(inp.dataset.par, 10);
+  const v = (inp.value || '').trim();
+  const path = 'clubs/' + state.clubCode + '/competitions/' + cid + '/scores/' + pid + '/r' + round + '/' + holeIdx;
+  // Determine previous value
+  const compRef = (((state.club || {}).competitions || {})[cid] || {});
+  const prevScores = (((compRef.scores || {})[pid] || {})['r' + round]) || {};
+  const prevVal = prevScores[holeIdx];
+
+  try {
+    if (v === '') {
+      // Erase
+      await dbRef.child(path).remove();
+      if (compRef.scores && compRef.scores[pid] && compRef.scores[pid]['r' + round]) {
+        delete compRef.scores[pid]['r' + round][holeIdx];
+      }
+      inp.value = '';
+      _scUpdateColorClass(inp, null, par);
+    } else {
+      const num = parseInt(v, 10);
+      if (isNaN(num) || num < 1 || num > 20) {
+        // Revert
+        inp.value = (prevVal != null) ? String(prevVal) : '';
+        return;
+      }
+      await dbRef.child(path).set(num);
+      if (!compRef.scores) compRef.scores = {};
+      if (!compRef.scores[pid]) compRef.scores[pid] = {};
+      if (!compRef.scores[pid]['r' + round]) compRef.scores[pid]['r' + round] = {};
+      compRef.scores[pid]['r' + round][holeIdx] = num;
+      inp.value = String(num);
+      _scUpdateColorClass(inp, num, par);
+    }
+    // Re-render to refresh totals
+    renderScorecard();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+function _scUpdateColorClass(inp, num, par) {
+  inp.classList.remove('sc-eagle', 'sc-birdie', 'sc-bogey', 'sc-double', 'sc-worst');
+  if (num == null) return;
+  if (num <= par - 2) inp.classList.add('sc-eagle');
+  else if (num === par - 1) inp.classList.add('sc-birdie');
+  else if (num === par + 1) inp.classList.add('sc-bogey');
+  else if (num === par + 2) inp.classList.add('sc-double');
+  else if (num >= par + 3) inp.classList.add('sc-worst');
+}
+
+// Prefill empty cells of a given round with par values
+async function prefillScorecard(round) {
+  if (!state.scorecard) return;
+  const { pid, cid } = state.scorecard;
+  const compRef = (((state.club || {}).competitions || {})[cid] || {});
+  if (!compRef) return;
+  const rKey = 'r' + round;
+  const playerScores = ((compRef.scores || {})[pid] || {})[rKey] || {};
+  const updates = {};
+  for (let h = 0; h < 18; h++) {
+    if (playerScores[h] == null) {
+      const par = getHolePar(h, round);
+      updates['scores/' + pid + '/' + rKey + '/' + h] = par;
+    }
+  }
+  if (Object.keys(updates).length === 0) return;
+  const compPath = 'clubs/' + state.clubCode + '/competitions/' + cid;
+  await dbRef.child(compPath).update(updates);
+  // Local state update
+  if (!compRef.scores) compRef.scores = {};
+  if (!compRef.scores[pid]) compRef.scores[pid] = {};
+  if (!compRef.scores[pid][rKey]) compRef.scores[pid][rKey] = {};
+  Object.keys(updates).forEach(k => {
+    const parts = k.split('/');
+    const h = parseInt(parts[parts.length - 1], 10);
+    compRef.scores[pid][rKey][h] = updates[k];
+  });
+  renderScorecard();
 }
 
 // Pre-fill all empty cells with par value (saves to Firebase + refreshes display)
@@ -4094,11 +4632,17 @@ function renderCompFlights() {
       const playersList = players.map((p, idx) => {
         if (!p) return `<div class="flight-player-row"><span style="color:var(--muted);"><i>(supprimé)</i></span></div>`;
         const pid = playerIds[idx];
-        return `<div class="flight-player-row ${genderClass(p)}" draggable="true"
+        return `<div class="flight-player-row-wrapper ${genderClass(p)}" style="display: flex; align-items: center; gap: 6px; padding: 2px 8px; margin: 2px 0; border-radius: 4px;">
+          <div class="flight-player-row" draggable="true"
                       data-player-id="${pid}" data-source-fid="${fid}"
-                      style="cursor: grab; padding: 4px 8px; border-radius: 4px; margin: 2px 0;">
-          <span class="flight-player-name">≡ ${escapeHtml(p.firstName || '')} <b>${escapeHtml(p.name || '')}</b></span>
-          ${p.hcp != null ? `<span class="flight-player-hcp">${p.hcp}</span>` : ''}
+                      style="cursor: grab; flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;">
+            <span class="flight-player-name" style="flex:1; min-width:0;">≡ ${escapeHtml(p.firstName || '')} <b>${escapeHtml(p.name || '')}</b></span>
+            ${p.hcp != null ? `<span class="flight-player-hcp">${p.hcp}</span>` : ''}
+          </div>
+          <button type="button" class="icon-btn"
+                  style="font-size: 14px; padding: 4px 8px; cursor: pointer; flex-shrink: 0; background: var(--paper); border: 1px solid var(--border); border-radius: 4px;"
+                  onclick="openScorecard('${pid}')"
+                  title="Carte de score">📝</button>
         </div>`;
       }).join('');
       const playerSearch = players.filter(p => p).map(p => (p.firstName||'')+' '+(p.name||'')).join(' ');
@@ -5527,14 +6071,107 @@ function fcmNextHoleFlight(fid) {
   if (next > 0) fcmSetFlightHole(fid, next);
 }
 
-// Check if a hole is validated (locked) for a given flight
+// Check if a hole is fully validated (ALL players validated) for a given flight
 function isHoleValidated(fid, round, holeIdx) {
   const c = state.comp;
   if (!c) return false;
   const f = (c.flights || {})[fid];
   if (!f) return false;
   const validated = (f.validatedHoles || {})['r' + round] || {};
-  return validated[holeIdx] === true;
+  const entry = validated[holeIdx];
+  if (entry === true) return true; // legacy format: entire hole validated
+  if (!entry || typeof entry !== 'object') return false;
+  // New format: per-player. All players must be validated.
+  const playerIds = f.playerIds || [];
+  if (playerIds.length === 0) return false;
+  return playerIds.every(pid => entry[pid] === true);
+}
+
+// Check if a specific player's hole is validated
+function isPlayerHoleValidated(fid, pid, round, holeIdx) {
+  const c = state.comp;
+  if (!c) return false;
+  const f = (c.flights || {})[fid];
+  if (!f) return false;
+  const validated = (f.validatedHoles || {})['r' + round] || {};
+  const entry = validated[holeIdx];
+  if (entry === true) return true; // legacy: all players validated
+  if (!entry || typeof entry !== 'object') return false;
+  return entry[pid] === true;
+}
+
+// Toggle validation for ONE player on a given hole
+async function togglePlayerHoleValidation(fid, pid, holeIdx) {
+  const round = state.currentRound;
+  const rKey = 'r' + round;
+  const c = state.comp;
+  const f = (c.flights || {})[fid];
+  if (!f) return;
+
+  const compPath = 'clubs/' + state.clubCode + '/competitions/' + state.compId;
+  const validatedHoles = (f.validatedHoles || {})[rKey] || {};
+  const entry = validatedHoles[holeIdx];
+
+  try {
+    // Determine current state for THIS player
+    const currentlyValidated = isPlayerHoleValidated(fid, pid, round, holeIdx);
+
+    // Compute the new entry object for this hole
+    let newEntry;
+    if (entry === true) {
+      // Legacy: convert to per-player object. All players validated EXCEPT this one (we're un-validating).
+      newEntry = {};
+      (f.playerIds || []).forEach(p => { if (p !== pid) newEntry[p] = true; });
+    } else if (entry && typeof entry === 'object') {
+      newEntry = { ...entry };
+      if (currentlyValidated) {
+        delete newEntry[pid];
+      } else {
+        newEntry[pid] = true;
+      }
+    } else {
+      // No entry yet
+      if (!currentlyValidated) {
+        newEntry = { [pid]: true };
+      } else {
+        newEntry = {};
+      }
+    }
+
+    // If validating: write par as default score for THIS player on THIS hole if missing
+    if (!currentlyValidated) {
+      const par = getHolePar(holeIdx, round);
+      const playerScores = ((c.scores || {})[pid] || {})[rKey] || {};
+      if (playerScores[holeIdx] == null) {
+        await dbRef.child(compPath + '/scores/' + pid + '/' + rKey + '/' + holeIdx).set(par);
+      }
+    }
+
+    // Write the new validation entry (or remove if empty)
+    const validPath = compPath + '/flights/' + fid + '/validatedHoles/' + rKey + '/' + holeIdx;
+    if (Object.keys(newEntry).length === 0) {
+      await dbRef.child(validPath).remove();
+    } else {
+      await dbRef.child(validPath).set(newEntry);
+    }
+
+    // Auto-advance to next hole if all players validated AND auto-advance is on
+    if (!currentlyValidated && state.fcmAutoAdvance !== false) {
+      const allValidated = (f.playerIds || []).every(p =>
+        (p === pid) || (newEntry[p] === true)
+      );
+      if (allValidated) {
+        const currentHole = holeIdx + 1;
+        const next = getNextHoleInOrder(currentHole, f);
+        if (next > 0) {
+          // Slight delay so user sees the check before advance
+          setTimeout(() => fcmSetFlightHole(fid, next), 250);
+        }
+      }
+    }
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
 }
 
 // Toggle validation status for a given hole with cascade behavior:
@@ -5663,10 +6300,30 @@ function clearFcmSelection() {
   renderFCMulti();
 }
 
+// Auto-advance toggle (persisted across sessions)
+function loadFcmAutoAdvance() {
+  try {
+    const v = localStorage.getItem('fcmAutoAdvance');
+    return v === null ? true : v === 'true'; // default = true
+  } catch (e) { return true; }
+}
+function toggleFcmAutoAdvance() {
+  const el = document.getElementById('fcm-auto-advance-toggle');
+  state.fcmAutoAdvance = el ? el.checked : !state.fcmAutoAdvance;
+  try { localStorage.setItem('fcmAutoAdvance', state.fcmAutoAdvance ? 'true' : 'false'); } catch (e) {}
+}
+
 function renderFCMulti() {
   const c = state.comp;
   if (!c) return;
   $('fcm-comp-name').textContent = c.name || '—';
+
+  // Initialize auto-advance state (from localStorage)
+  if (state.fcmAutoAdvance === undefined) {
+    state.fcmAutoAdvance = loadFcmAutoAdvance();
+  }
+  const autoEl = document.getElementById('fcm-auto-advance-toggle');
+  if (autoEl) autoEl.checked = state.fcmAutoAdvance;
 
   let info = c.holes + ' trous · ' + (c.scoring === 'net' ? 'NET' : 'BRUT');
   if (state.isAdminScoring) info += ' · Admin';
@@ -5779,8 +6436,9 @@ function renderFCMulti() {
         const strokes = playerScores[holeIdx];
         const cls = scoreClass(strokes, par);
         const label = scoreLabel(strokes, par) || (strokes == null ? 'Saisir' : '');
-        const disabledAttr = isValidated ? 'disabled' : '';
-        const lockedStyle = isValidated ? 'opacity: 0.7;' : '';
+        const playerValidated = isPlayerHoleValidated(fid, pid, state.currentRound, holeIdx);
+        const disabledAttr = playerValidated ? 'disabled' : '';
+        const lockedStyle = playerValidated ? 'opacity: 0.7;' : '';
         return `<div class="fcm-row ${genderClass(p)}" style="${p.gender ? 'padding: 12px 8px; border-radius: 6px; margin: 2px 0;' : ''}${lockedStyle}">
           <div>
             <div class="fcm-row-name">${escapeHtml(getFullName(p))}</div>
@@ -5794,24 +6452,20 @@ function renderFCMulti() {
             </div>
             <button class="fcm-stepper-btn" onclick="fcmChangeScore('${pid}', '${fid}', 1)" ${disabledAttr}>+</button>
           </div>
+          <label class="fcm-player-validate" title="${playerValidated ? 'Validé · clic pour annuler' : 'Cocher pour valider'}">
+            <input type="checkbox" ${playerValidated ? 'checked' : ''} onchange="togglePlayerHoleValidation('${fid}', '${pid}', ${holeIdx})">
+            <span class="fcm-player-validate-label">${playerValidated ? '✓' : ''}</span>
+          </label>
         </div>`;
       }).join('');
 
-      // Validation button — always clickable, 2 states
-      let validationBar;
-      if (isValidated) {
-        validationBar = `
-          <button class="btn-validate validated" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
-            <span class="btn-validate-icon">✓</span>
-            <span>Validé</span>
-          </button>`;
-      } else {
-        validationBar = `
-          <button class="btn-validate not-validated" onclick="toggleHoleValidation('${fid}', ${holeIdx})">
-            <span class="btn-validate-icon">⊘</span>
-            <span>Non validé</span>
-          </button>`;
-      }
+      // Counter showing N validated of M players (replaces global Validate button)
+      const validatedCount = playerIds.filter(pid => isPlayerHoleValidated(fid, pid, state.currentRound, holeIdx)).length;
+      const allValid = validatedCount === playerIds.length && playerIds.length > 0;
+      const validationBar = `
+        <div class="fcm-validation-status ${allValid ? 'all-valid' : ''}">
+          <span>${allValid ? '✓ Tous validés' : `${validatedCount} / ${playerIds.length} validés`}</span>
+        </div>`;
 
       const startBadgeFCM = getFlightStartHole(f) === 10
         ? ` <span style="font-size: 10px; color: var(--paper); background: var(--fairway); padding: 1px 6px; border-radius: 4px; font-weight: 700;">⛳ T10</span>` : '';
@@ -5846,9 +6500,9 @@ function renderFCMulti() {
 function fcmChangeScore(pid, fid, delta) {
   const currentHole = fcmGetFlightHole(fid);
   const holeIdx = currentHole - 1;
-  // Bail out if hole is validated
-  if (isHoleValidated(fid, state.currentRound, holeIdx)) {
-    return; // silently ignore changes when locked
+  // Bail out if THIS player is validated for this hole
+  if (isPlayerHoleValidated(fid, pid, state.currentRound, holeIdx)) {
+    return; // silently ignore changes when player is locked
   }
   const par = getHolePar(holeIdx, state.currentRound);
   const c = state.comp;
@@ -6022,7 +6676,7 @@ function renderLeaderboardTable(data, comp) {
 
   data.forEach((d, i) => {
     const pos = d.totalHolesPlayed === 0 ? '—' : (i + 1);
-    html += `<div class="leader-row" style="${colTemplate}">
+    html += `<div class="leader-row leader-row-clickable" style="${colTemplate}" onclick="openScorecardReadOnly('${d.pid}')" title="Voir la carte de score">
       <div class="leader-pos">${pos}</div>
       <div>
         <div class="leader-name">${escapeHtml(d.name)}</div>
@@ -6041,6 +6695,7 @@ function renderLeaderboardTable(data, comp) {
 
   // Legend
   html += `<div style="margin-top: 12px; font-size: 11px; color: var(--muted); text-align: center; padding: 0 8px;">
+    💡 Cliquez sur un joueur pour voir sa carte de score<br>
     Score affiché en différence par rapport au par
     (<span style="color: #16A34A; font-weight:600;">-X</span> sous le par, <b>E</b> au par, <span style="color: #C2410C; font-weight:600;">+X</span> au-dessus)
     · <b>F</b> = terminé
@@ -6795,6 +7450,7 @@ const __exports = [
   'openClearScoresModal', 'updateClearScoresRoundOptions', 'setClearScoresMode', 'confirmClearScores',
   'openPlayerScoreEditor', 'showPlayerScoreEditor', 'closePlayerScoreEditor',
   'editPlayerScoresCurrentComp',
+  'openScorecard', 'closeScorecard', 'prefillScorecard', 'openScorecardReadOnly',
   'saveScoreCell', 'onScoreCellKey', 'prefillScoresWithPars',
   'deleteDbPlayer', 'filterPlayersDbList',
   // Imports
@@ -6831,7 +7487,9 @@ const __exports = [
   'fcmSwitchRound',
   'fcmPrevHoleFlight', 'fcmNextHoleFlight',
   'toggleFcmFlightSelection', 'clearFcmSelection',
-  'toggleHoleValidation',
+  'toggleHoleValidation', 'togglePlayerHoleValidation', 'toggleFcmAutoAdvance',
+  'togglePlayerHoleValidation',
+  'toggleFcmAutoAdvance',
   'fcmPrevPage', 'fcmNextPage', 'fcmChangeScore',
   // Public leaderboard
   'leaderboardBack', 'renderPublicLeaderboard',
