@@ -2482,14 +2482,22 @@ function _scAttachInputHandlers() {
     inp.addEventListener('change', () => _scSaveCell(inp));
   });
 
-  // After render, if we have a pending focus, apply it
+  // After render, if we have a pending focus, apply it (with requestAnimationFrame for reliable timing)
   if (state._scNextFocus) {
-    const target = document.querySelector(`.sc-score-input[data-round="${state._scNextFocus.round}"][data-hole="${state._scNextFocus.hole}"]`);
-    if (target) {
-      target.focus();
-      target.select();
-    }
+    const focusInfo = state._scNextFocus;
     state._scNextFocus = null;
+    requestAnimationFrame(() => {
+      const target = document.querySelector(`.sc-score-input[data-round="${focusInfo.round}"][data-hole="${focusInfo.hole}"]`);
+      if (target) {
+        target.focus();
+        // Select all text so user can immediately type to replace
+        if (typeof target.select === 'function') target.select();
+        // Make sure cursor is visible
+        try {
+          target.setSelectionRange(0, target.value.length);
+        } catch (e) { /* ignore for non-text inputs */ }
+      }
+    });
   }
 }
 
