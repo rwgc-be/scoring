@@ -1598,7 +1598,13 @@ function renderActiveAdminScreen() {
   if ($('screen-score').classList.contains('active') && state.flight) renderScoreScreen();
   if ($('screen-fc-multi').classList.contains('active') && state.comp) renderFCMulti();
   if ($('screen-leaderboard-public').classList.contains('active') && state.comp) renderPublicLeaderboard();
-  if ($('screen-scorecard').classList.contains('active') && state.scorecard) renderScorecard();
+  if ($('screen-scorecard').classList.contains('active') && state.scorecard) {
+    // Don't re-render if an input is currently focused (would break Tab editing)
+    const focusedEl = document.activeElement;
+    const isEditingScore = focusedEl && focusedEl.classList && focusedEl.classList.contains('sc-score-input');
+    if (!isEditingScore) renderScorecard();
+    else _scUpdateTotals(); // just update totals
+  }
 }
 
 function logout() {
@@ -2314,10 +2320,10 @@ function renderScorecard() {
     html += `<div class="sc-grand-total">
       <div class="sc-gt-label">${tourLabel}</div>
       <div>
-        <span class="sc-gt-value">${allTotalScore}</span>
-        <span class="sc-gt-diff" style="color: ${color};">${diff === 0 ? 'E' : sign + diff}</span>
+        <span class="sc-gt-value" id="sc-grand-total-val">${allTotalScore}</span>
+        <span class="sc-gt-diff" id="sc-grand-total-diff" style="color: ${color};">${diff === 0 ? 'E' : sign + diff}</span>
       </div>
-      <div style="font-size: 11px; color: var(--muted); margin-top: 4px;">
+      <div style="font-size: 11px; color: var(--muted); margin-top: 4px;" id="sc-grand-total-played">
         ${allHolesPlayed} trou${allHolesPlayed>1?'s':''} joué${allHolesPlayed>1?'s':''} · Par ${allTotalPar}
       </div>
     </div>`;
@@ -2408,7 +2414,7 @@ function _scRenderRound(c, p, pid, round, readOnly) {
   allerTable += '<tr><th class="sc-label">Score</th>';
   for (let i = 0; i < 9; i++) allerTable += scoreCell(allerScores[i], allerPars[i], i);
   const allerSumDiff = allerCount > 0 ? (allerTotalScore - allerPars.slice(0, allerCount).reduce((a,b)=>a+b,0)) : 0;
-  allerTable += `<td class="sc-sum">${allerCount > 0 ? allerTotalScore : '—'}</td></tr>`;
+  allerTable += `<td class="sc-sum" id="sc-aller-sum-r${round}">${allerCount > 0 ? allerTotalScore : '—'}</td></tr>`;
   allerTable += '</tbody></table>';
 
   // Build retour table
@@ -2424,13 +2430,13 @@ function _scRenderRound(c, p, pid, round, readOnly) {
   // Score row
   retourTable += '<tr><th class="sc-label">Score</th>';
   for (let i = 9; i < 18; i++) retourTable += scoreCell(retourScores[i - 9], retourPars[i - 9], i);
-  retourTable += `<td class="sc-sum">${retourCount > 0 ? retourTotalScore : '—'}</td>`;
+  retourTable += `<td class="sc-sum" id="sc-retour-sum-r${round}">${retourCount > 0 ? retourTotalScore : '—'}</td>`;
   if (totalCount > 0) {
     const diff = totalScore - totalPar;
     const sign = diff > 0 ? '+' : '';
-    retourTable += `<td class="sc-total">${totalScore} <span style="font-size:11px; opacity:0.85;">${diff === 0 ? 'E' : sign + diff}</span></td>`;
+    retourTable += `<td class="sc-total" id="sc-total-r${round}">${totalScore} <span style="font-size:11px; opacity:0.85;">${diff === 0 ? 'E' : sign + diff}</span></td>`;
   } else {
-    retourTable += `<td class="sc-total">—</td>`;
+    retourTable += `<td class="sc-total" id="sc-total-r${round}">—</td>`;
   }
   retourTable += '</tbody></table>';
 
@@ -2455,63 +2461,201 @@ function _scAttachInputHandlers() {
   inputs.forEach(inp => {
     // Block non-digit keys (allow special keys)
     inp.addEventListener('keydown', e => {
-      if (e.key === 'Tab' || e.key === 'Enter' || e.key === 'Backspace' || e.key === 'Delete'
-          || e.key === 'ArrowLeft' || e.key === 'ArrowRight'
-          || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        // For Tab and Enter, save first then move to next manually
-        // (since the blur event re-renders the table, the natural tab focus is lost)
-        if (e.key === 'Tab' || e.key === 'Enter') {
-          e.preventDefault();
-          // Remember which cell to focus next (forward Tab or Shift+Tab for previous)
-          const direction = (e.key === 'Tab' && e.shiftKey) ? -1 : 1;
-          state._scNextFocus = _scComputeNextFocusKey(inp, direction);
-          // Trigger save which will re-render
-          _scSaveCell(inp);
+      const isNav = ['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key);
+      const isEdit = ['Backspace','Delete'].includes(e.key);
+      const isMove = (e.key === 'Tab' || e.key === 'Enter');
+      const isDigit = /^[0-9]$/.test(e.key);
+
+      if (isMove) {
+        e.preventDefault();
+        // Compute next BEFORE save (DOM is intact)
+        const direction = (e.key === 'Tab' && e.shiftKey) ? -1 : 1;
+        const nextKey = _scComputeNextFocusKey(inp, direction);
+        const nextEl = nextKey
+          ? document.querySelector(`.sc-score-input[data-round="${nextKey.round}"][data-hole="${nextKey.hole}"]`)
+          : null;
+
+        // Save current cell IN BACKGROUND (no re-render, just inline update)
+        _scSaveCellInline(inp);
+
+        // Move focus to next IMMEDIATELY (DOM still intact)
+        if (nextEl) {
+          nextEl.focus();
+          try { nextEl.select(); } catch (err) {}
+          try { nextEl.setSelectionRange(0, nextEl.value.length); } catch (err) {}
         }
         return;
       }
-      if (!/^[0-9]$/.test(e.key)) e.preventDefault();
+
+      if (isNav || isEdit) return;
+      if (!isDigit) e.preventDefault();
     });
-    // Save on blur ONLY if focus is moving outside the scorecard (not to another cell)
+
+    // Save on blur ONLY if focus is moving outside the scorecard
     inp.addEventListener('blur', e => {
-      // If the new active element is another scorecard cell, the keydown handler already handled it
       const newFocus = e.relatedTarget;
       if (newFocus && newFocus.classList && newFocus.classList.contains('sc-score-input')) return;
-      _scSaveCell(inp);
+      _scSaveCellInline(inp);
     });
-    inp.addEventListener('change', () => _scSaveCell(inp));
+    inp.addEventListener('change', () => _scSaveCellInline(inp));
+  });
+}
+
+// Save a single cell to Firebase WITHOUT re-rendering the whole scorecard.
+// Updates the cell color + the relevant totals inline.
+async function _scSaveCellInline(inp) {
+  if (!state.scorecard) return;
+  const { pid, cid } = state.scorecard;
+  const round = parseInt(inp.dataset.round, 10);
+  const holeIdx = parseInt(inp.dataset.hole, 10);
+  const par = parseInt(inp.dataset.par, 10);
+  const v = (inp.value || '').trim();
+  const path = 'clubs/' + state.clubCode + '/competitions/' + cid + '/scores/' + pid + '/r' + round + '/' + holeIdx;
+  const compRef = (((state.club || {}).competitions || {})[cid] || {});
+  const prevScores = (((compRef.scores || {})[pid] || {})['r' + round]) || {};
+  const prevVal = prevScores[holeIdx];
+
+  try {
+    if (v === '') {
+      // Erase
+      await dbRef.child(path).remove();
+      if (compRef.scores && compRef.scores[pid] && compRef.scores[pid]['r' + round]) {
+        delete compRef.scores[pid]['r' + round][holeIdx];
+      }
+      inp.value = '';
+      _scUpdateColorClass(inp, null, par);
+    } else {
+      const num = parseInt(v, 10);
+      if (isNaN(num) || num < 1 || num > 20) {
+        // Revert in UI (DB unchanged)
+        inp.value = (prevVal != null) ? String(prevVal) : '';
+        return;
+      }
+      if (num === prevVal) return; // No change
+      await dbRef.child(path).set(num);
+      if (!compRef.scores) compRef.scores = {};
+      if (!compRef.scores[pid]) compRef.scores[pid] = {};
+      if (!compRef.scores[pid]['r' + round]) compRef.scores[pid]['r' + round] = {};
+      compRef.scores[pid]['r' + round][holeIdx] = num;
+      inp.value = String(num);
+      _scUpdateColorClass(inp, num, par);
+    }
+    // Update the totals (Aller, Retour, Total T1/T2, Grand Total) without full re-render
+    _scUpdateTotals();
+  } catch (err) {
+    alert('Erreur : ' + err.message);
+  }
+}
+
+// Recompute and update all totals in the visible scorecard
+function _scUpdateTotals() {
+  if (!state.scorecard) return;
+  const { pid, cid } = state.scorecard;
+  const c = (((state.club || {}).competitions || {})[cid] || {});
+  if (!c) return;
+  const is36 = c.holes === 36;
+
+  // For each round visible
+  const rounds = is36 ? [1, 2] : [1];
+  let grandScore = 0, grandPar = 0, grandPlayed = 0;
+
+  rounds.forEach(round => {
+    const rKey = 'r' + round;
+    const playerScores = ((c.scores || {})[pid] || {})[rKey] || {};
+    let allerScore = 0, allerPar = 0, allerCount = 0;
+    let retourScore = 0, retourPar = 0, retourCount = 0;
+
+    for (let h = 0; h < 9; h++) {
+      const par = getHolePar(h, round);
+      const s = playerScores[h];
+      allerPar += par;
+      if (s != null) { allerScore += s; allerCount++; }
+    }
+    for (let h = 9; h < 18; h++) {
+      const par = getHolePar(h, round);
+      const s = playerScores[h];
+      retourPar += par;
+      if (s != null) { retourScore += s; retourCount++; }
+    }
+    const totalScore = allerScore + retourScore;
+    const totalPar = allerPar + retourPar;
+    const totalCount = allerCount + retourCount;
+    grandScore += totalScore;
+    grandPar += totalPar;
+    grandPlayed += totalCount;
+
+    // Update DOM cells for this round
+    const allerSumEl = document.querySelector(`#sc-aller-sum-r${round}`);
+    const retourSumEl = document.querySelector(`#sc-retour-sum-r${round}`);
+    const totalEl = document.querySelector(`#sc-total-r${round}`);
+    if (allerSumEl) allerSumEl.textContent = (allerCount > 0 ? allerScore : '—');
+    if (retourSumEl) retourSumEl.textContent = (retourCount > 0 ? retourScore : '—');
+    if (totalEl) {
+      if (totalCount > 0) {
+        const diff = totalScore - totalPar;
+        const sign = diff > 0 ? '+' : '';
+        const diffStr = diff === 0 ? 'E' : sign + diff;
+        totalEl.innerHTML = `${totalScore} <span style="font-size:11px; opacity:0.85;">${diffStr}</span>`;
+      } else {
+        totalEl.textContent = '—';
+      }
+    }
   });
 
-  // After render, if we have a pending focus, apply it (with requestAnimationFrame for reliable timing)
-  if (state._scNextFocus) {
-    const focusInfo = state._scNextFocus;
-    state._scNextFocus = null;
-    requestAnimationFrame(() => {
-      const target = document.querySelector(`.sc-score-input[data-round="${focusInfo.round}"][data-hole="${focusInfo.hole}"]`);
-      if (target) {
-        target.focus();
-        // Select all text so user can immediately type to replace
-        if (typeof target.select === 'function') target.select();
-        // Make sure cursor is visible
-        try {
-          target.setSelectionRange(0, target.value.length);
-        } catch (e) { /* ignore for non-text inputs */ }
-      }
-    });
+  // Update grand total
+  const gtValEl = document.querySelector('#sc-grand-total-val');
+  const gtDiffEl = document.querySelector('#sc-grand-total-diff');
+  const gtPlayedEl = document.querySelector('#sc-grand-total-played');
+  if (gtValEl && gtDiffEl && grandPlayed > 0) {
+    const diff = grandScore - grandPar;
+    const sign = diff > 0 ? '+' : '';
+    gtValEl.textContent = grandScore;
+    gtDiffEl.textContent = diff === 0 ? 'E' : sign + diff;
+    gtDiffEl.style.color = diff > 0 ? '#DC2626' : (diff < 0 ? '#10B981' : 'var(--muted)');
+    if (gtPlayedEl) gtPlayedEl.textContent = `${grandPlayed} trou${grandPlayed>1?'s':''} joué${grandPlayed>1?'s':''} · Par ${grandPar}`;
+  } else if (!gtValEl && grandPlayed > 0) {
+    // Grand total wasn't displayed before; need a full re-render to add it
+    // But we DON'T want to break the focus. Skip for now - the next blur will trigger it
+    // OR if grandPlayed went from > 0 to 0, we need to remove it - same skip
   }
 }
 
 // Compute the key of the next cell to focus (for Tab navigation)
+// Uses explicit round + hole logic to follow natural golf order
 function _scComputeNextFocusKey(inp, direction) {
-  const all = Array.from(document.querySelectorAll('.sc-score-input[data-hole]'));
-  const idx = all.indexOf(inp);
-  const nextIdx = idx + direction;
-  if (nextIdx < 0 || nextIdx >= all.length) return null;
-  const next = all[nextIdx];
-  return {
-    round: parseInt(next.dataset.round, 10),
-    hole: parseInt(next.dataset.hole, 10)
-  };
+  const round = parseInt(inp.dataset.round, 10);
+  const hole = parseInt(inp.dataset.hole, 10);
+  const sc = state.scorecard;
+  const c = sc ? (state.club.competitions || {})[sc.cid] : null;
+  const is36 = c && c.holes === 36;
+
+  let nextRound = round;
+  let nextHole = hole + direction;
+
+  if (direction === 1) {
+    // Going forward
+    if (nextHole > 17) {
+      // End of round
+      if (round === 1 && is36) {
+        nextRound = 2;
+        nextHole = 0;
+      } else {
+        return null; // End of scorecard
+      }
+    }
+  } else if (direction === -1) {
+    // Going backward
+    if (nextHole < 0) {
+      if (round === 2) {
+        nextRound = 1;
+        nextHole = 17;
+      } else {
+        return null; // Start of scorecard
+      }
+    }
+  }
+
+  return { round: nextRound, hole: nextHole };
 }
 
 function _scMoveToNext(inp) {
