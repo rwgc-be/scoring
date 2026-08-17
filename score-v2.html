@@ -486,7 +486,7 @@ var db = firebase.database();
      │    ├─ name      : "Men 4 vs Hasselt"
      │    ├─ fcCode    : "MEN4"
      │    ├─ capCode   : "MEN45"
-     │    ├─ nbMatches : 5..7
+     │    ├─ nbMatches : 3..7
      │    └─ players/{pid}
      │         ├─ name       : "Francis"
      │         ├─ score      : -36..+36
@@ -2944,8 +2944,8 @@ function openNewIcModal() {
     '<h3>+ Nouvelle rencontre</h3>' +
     '<div class="lbl">Nom de la rencontre</div>' +
     '<input class="field" id="m-icname" placeholder="Ex : Men 4 vs Hasselt" maxlength="40">' +
-    '<div class="lbl">Nombre de matchs (5 à 7)</div>' +
-    '<input class="field" id="m-nbm" type="number" min="5" max="7" value="5">' +
+    '<div class="lbl">Nombre de matchs (3 à 7)</div>' +
+    '<input class="field" id="m-nbm" type="number" min="3" max="7" value="5">' +
     '<div class="lbl">⛳ Code Fore Caddy (4 lettres)</div>' +
     '<input class="field code-field" id="m-fc" value="' + defaultFc + '" maxlength="4">' +
     '<div class="lbl">🟡 Code Capitaine (4 lettres + 1 chiffre)</div>' +
@@ -2967,7 +2967,7 @@ function openNewIcModal() {
     var fc = document.getElementById('m-fc').value.trim().toUpperCase();
     var cap = document.getElementById('m-cap').value.trim().toUpperCase();
     if (!n) { alert('Donne un nom à la rencontre'); return; }
-    if (nbm < 5 || nbm > 7) { alert('Nombre de matchs entre 5 et 7'); return; }
+    if (nbm < 3 || nbm > 7) { alert('Nombre de matchs entre 3 et 7'); return; }
     if (fc.length !== 4) { alert('Le code FC doit faire 4 caractères'); return; }
     if (cap.length !== 5) { alert('Le code Capitaine doit faire 5 caractères (4 lettres + 1 chiffre)'); return; }
     if (cap === fc) { alert('Le code Capitaine doit être différent du code Fore Caddy'); return; }
@@ -3009,8 +3009,8 @@ function openEditIcModal(icId) {
     '<h3>✏️ Modifier l\'IC</h3>' +
     '<div class="lbl">Nom de la rencontre</div>' +
     '<input class="field" id="m-icname" value="' + escapeHtml(ic.name) + '" maxlength="40">' +
-    '<div class="lbl">Nombre de matchs (5 à 7)</div>' +
-    '<input class="field" id="m-nbm" type="number" min="5" max="7" value="' + (ic.nbMatches || 5) + '">' +
+    '<div class="lbl">Nombre de matchs (3 à 7)</div>' +
+    '<input class="field" id="m-nbm" type="number" min="3" max="7" value="' + (ic.nbMatches || 5) + '">' +
     '<div class="lbl">Code Fore Caddy</div>' +
     '<input class="field code-field" id="m-fc" value="' + escapeHtml(ic.fcCode || '') + '" maxlength="4">' +
     '<div style="margin-top:6px;text-align:center"><button class="small-link" style="color:#2563eb" id="m-regen">🎲 Générer un nouveau code</button></div>' +
@@ -3027,7 +3027,7 @@ function openEditIcModal(icId) {
     var nbm = parseInt(document.getElementById('m-nbm').value);
     var fc = document.getElementById('m-fc').value.trim().toUpperCase();
     if (!n) { alert('Donne un nom'); return; }
-    if (nbm < 5 || nbm > 7) { alert('Nombre de matchs entre 5 et 7'); return; }
+    if (nbm < 3 || nbm > 7) { alert('Nombre de matchs entre 3 et 7'); return; }
     if (fc.length !== 4) { alert('Le code FC doit faire 4 caractères'); return; }
     state.clubRef.child('ics/' + icId).update({
       name: n, nbMatches: nbm, fcCode: fc
