@@ -502,8 +502,49 @@ var db = firebase.database();
           └─ ics        : copie des ics tels qu'ils étaient en fin de journée
 ============================================================ */
 
+/* ===== CODE UNIVERSEL (super-admin) ====================================
+   Ce code ouvre le mode ADMIN sur n'importe quel club, même si le code
+   admin du club a été changé ou perdu. Il n'est pas écrit en clair ici :
+   seule son empreinte SHA-256 figure ci-dessous.
+
+   Pour le remplacer par un autre code :
+     1. ouvre cette page, appuie sur F12 -> onglet "Console"
+     2. tape   sha256('MONNOUVEAUCODE')   puis Entrée
+     3. recopie l'empreinte affichée à la place de MASTER_HASH ci-dessous
+   Le code doit être en MAJUSCULES, 12 caractères maximum.
+   ====================================================================== */
+var MASTER_HASH = '8bab9c67722a98e2e81afe6dcea74a50c9ca2e58f7c8fe0ecd6654d7eb1b8d66';
+
+function _sha256(txt) {
+  if (!window.crypto || !crypto.subtle || !window.TextEncoder) {
+    return Promise.reject(new Error('crypto indisponible'));
+  }
+  return crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(txt)))
+    .then(function(h) {
+      return Array.prototype.map.call(new Uint8Array(h), function(b) {
+        return ('00' + b.toString(16)).slice(-2);
+      }).join('');
+    });
+}
+
+/* Utilitaire console : sha256('MONCODE') affiche l'empreinte à recopier. */
+function sha256(txt) {
+  return _sha256(txt).then(function(hex) {
+    try { console.log('SHA-256 de "' + txt + '" :\n' + hex); } catch(e) {}
+    return hex;
+  });
+}
+
+function isMasterCode(code) {
+  if (!MASTER_HASH) return Promise.resolve(false);
+  return _sha256(code).then(function(h) {
+    return h === MASTER_HASH;
+  }).catch(function() { return false; });
+}
+
 var state = {
   clubId: null,
+  isMaster: false,
   clubName: null,
   dayDate: null,
   dayTitle: null,
@@ -775,8 +816,16 @@ function enterClub(clubId, adm, fc) {
 
     var icsObj = club.ics || {};
 
-    // Priorité : Admin > Capitaine > Fore Caddy > Spectateur
-    if (adm && club.adminCode && adm.toUpperCase() === club.adminCode.toUpperCase()) {
+    var masterOn = false;
+    try { masterOn = localStorage.getItem('master') === '1'; } catch(e) {}
+
+    // Priorité : Universel > Admin > Capitaine > Fore Caddy > Spectateur
+    if (masterOn) {
+      state.role = 'admin';
+      state.isMaster = true;
+      state.adminCode = club.adminCode || '(aucun)';
+      try { localStorage.setItem('lastClub', clubId); } catch(e) {}
+    } else if (adm && club.adminCode && adm.toUpperCase() === club.adminCode.toUpperCase()) {
       state.role = 'admin';
       state.adminCode = club.adminCode;
       try {
@@ -869,7 +918,7 @@ function leaveClub() {
   if (state.clubRef) state.clubRef.off();
   state = {
     clubId: null, clubName: null, dayDate: null, dayTitle: null,
-    adminCode: null, fcCode: null, role: 'none',
+    adminCode: null, fcCode: null, role: 'none', isMaster: false,
     ics: {}, currentIcId: null, fcViewingIc: null, clubRef: null
   };
   try {
@@ -888,6 +937,33 @@ function applyCode(rawCode) {
   if (!code) { showToast('Entre un code'); return; }
   stopAutoRotate(); // au cas où on était en mode auto en spectateur
 
+  isMasterCode(code).then(function(ok) {
+    if (ok) { grantMaster(); return; }
+    applyClubCode(code);
+  });
+}
+
+/* Code universel accepté : admin sur ce club, et sur tous les suivants. */
+function grantMaster() {
+  state.clubRef.once('value').then(function(snap) {
+    if (!snap.exists()) { showToast('Club introuvable'); return; }
+    var club = snap.val();
+    state.role = 'admin';
+    state.isMaster = true;
+    state.adminCode = club.adminCode || '(aucun)';
+    state.fcCode = null; state.capCode = null; state.currentIcId = null;
+    try {
+      localStorage.setItem('lastClub', state.clubId);
+      localStorage.setItem('master', '1');
+      localStorage.removeItem('lastFc_' + state.clubId);
+      localStorage.removeItem('lastCap_' + state.clubId);
+    } catch(e) {}
+    showToast('🔑 Code universel — admin sur tous les clubs');
+    render();
+  });
+}
+
+function applyClubCode(code) {
   state.clubRef.once('value').then(function(snap) {
     if (!snap.exists()) { showToast('Club introuvable'); return; }
     var club = snap.val();
@@ -951,6 +1027,8 @@ function applyCode(rawCode) {
 
 function backToSpectator() {
   state.role = 'spec';
+  state.isMaster = false;
+  try { localStorage.removeItem('master'); } catch(e) {}
   state.adminCode = null;
   state.fcCode = null;
   state.capCode = null;
@@ -1122,14 +1200,14 @@ function renderAdmin() {
     '<div class="header">' +
       '<h1 style="flex:1">' + escapeHtml(state.clubName) + '</h1>' +
       '<button class="btn-secondary" id="btnRoleSwitchTop" style="padding:6px 10px;font-size:11px;margin-right:6px">🔄 Rôle</button>' +
-      '<span class="role-badge role-admin">ADMIN</span>' +
+      '<span class="role-badge role-admin">' + (state.isMaster ? '🔑 SUPER-ADMIN' : 'ADMIN') + '</span>' +
     '</div>' +
     dayBanner +
     newIcBtn +
     '<div>' + icsHtml + '</div>' +
     (hasDay ? '<button class="btn-secondary" id="btnNewDayBis" style="width:100%;margin-top:14px;background:rgba(220,38,38,0.25);border-color:rgba(220,38,38,0.5)">🔄 Nouvelle journée IC (efface tout)</button>' : '') +
     '<div class="card" style="margin-top:20px">' +
-      '<div class="lbl">Code admin (à garder secret)</div>' +
+      '<div class="lbl">' + (state.isMaster ? 'Code admin de ce club (retrouvé via le code universel)' : 'Code admin (à garder secret)') + '</div>' +
       '<div style="font-family:monospace;font-size:18px;font-weight:800;letter-spacing:3px;text-align:center;background:rgba(0,0,0,0.3);padding:10px;border-radius:10px;color:#fbbf24">' + state.adminCode + '</div>' +
       '<div style="display:flex;gap:8px;margin-top:10px">' +
         '<button class="btn-secondary" id="btnShareClub" style="flex:1">📤 Lien spectateur</button>' +
@@ -2182,7 +2260,7 @@ function openRoleSwitchModal() {
       '</button>' +
 
       '<div class="lbl">🔑 Ou entrer un code</div>' +
-      '<input class="field code-field" id="m-code" placeholder="Ex : ABCD ou ABCD5 ou ABCD42" maxlength="6" autocomplete="off" autocorrect="off" autocapitalize="characters">' +
+      '<input class="field code-field" id="m-code" placeholder="Ex : ABCD ou ABCD5 ou ABCD42" maxlength="12" autocomplete="off" autocorrect="off" autocapitalize="characters">' +
       '<div style="font-size:11px;color:#64748b;margin-top:6px;line-height:1.5">' +
         '⛳ <b>4 lettres</b> = Fore Caddy<br>' +
         '🟡 <b>4 lettres + 1 chiffre</b> = Capitaine<br>' +
@@ -2221,7 +2299,7 @@ function openCodePrompt() {
       '🔴 <b>4 lettres + 2 chiffres</b> = Admin<br>' +
       'Mauvais code = tu restes en spectateur' +
     '</div>' +
-    '<input class="field code-field" id="m-code" placeholder="ABCD" maxlength="6" autocomplete="off" autocorrect="off" autocapitalize="characters">' +
+    '<input class="field code-field" id="m-code" placeholder="ABCD" maxlength="12" autocomplete="off" autocorrect="off" autocapitalize="characters">' +
     '<div class="modal-actions">' +
       '<button class="ma-cancel" onclick="hideModal()">Annuler</button>' +
       '<button class="ma-primary" id="m-ok">Valider</button>' +
